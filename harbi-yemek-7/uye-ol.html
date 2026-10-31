@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Üye ol — Harbi Yemek 7</title>
+  <style>
+:root {
+  color-scheme: light;
+  --ink: #24170f;
+  --muted: #6f5b4c;
+  --paper: #f4eee6;
+  --card: #fffdfb;
+  --line: #e6d9cb;
+  --chili: #a33b24;
+  --brand: #9a3412;
+  --hero: #2c211b;
+  --max: 1100px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 16px/1.5 "Liberation Sans", "DejaVu Sans", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+a { color: inherit; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar {
+  max-width: var(--max);
+  margin: 0 auto;
+  min-height: 68px;
+  padding: 12px 20px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 16px;
+}
+
+.brand {
+  justify-self: start;
+  color: var(--brand);
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.search {
+  width: min(440px, 100%);
+  justify-self: center;
+}
+
+.search input {
+  width: 100%;
+  border: 1px solid #ddcfc0;
+  background: #fff;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  color: var(--ink);
+}
+
+.search input::placeholder { color: #8d7564; }
+
+.search input:focus-visible,
+.account a:focus-visible,
+.brand:focus-visible,
+.back:focus-visible {
+  outline: 2px solid var(--chili);
+  outline-offset: 2px;
+}
+
+.account {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.account a { text-decoration: none; }
+
+.account a:hover,
+.back:hover { text-decoration: underline; }
+
+.slash { color: var(--muted); }
+
+.hero {
+  background:
+    radial-gradient(circle at 88% 0%, rgba(226, 146, 78, 0.35), transparent 32%),
+    linear-gradient(165deg, #3a2b23, var(--hero));
+  color: #f7f1ea;
+}
+
+.hero-inner {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 36px 20px 42px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #e7b89a;
+}
+
+.hero h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.hero p { margin: 0; max-width: 38rem; color: #f0e4d8; }
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts li {
+  border: 1px solid rgba(247, 241, 234, 0.28);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  color: #f7f1ea;
+}
+
+.mahalleler {
+  max-width: var(--max);
+  margin: -16px auto 0;
+  padding: 0 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  position: relative;
+}
+
+.mahalleler li {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.88rem;
+}
+
+.wrap {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+}
+
+h2 {
+  margin: 8px 0 12px;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.section-note {
+  margin: -4px 0 14px;
+  color: var(--muted);
+}
+
+.rest-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.rest {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.swatch {
+  min-height: 76px;
+  padding: 12px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--c);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rest div.body,
+.rest .body { padding: 12px 14px 14px; }
+
+.rest h3 { margin: 0; font-size: 1.02rem; }
+
+.meta { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+
+.menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.menu li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.menu strong { display: block; }
+
+.menu .meta { margin: 0; }
+
+.price {
+  color: var(--chili);
+  font-weight: 800;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.site-footer p {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 16px 20px 28px;
+}
+
+.panel {
+  max-width: 440px;
+  margin: 36px auto 64px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 22px;
+}
+
+.panel h1 { margin: 0 0 12px; font-size: 1.5rem; }
+
+.banner {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff4e8;
+  border: 1px solid #f0d2b4;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.panel label {
+  display: block;
+  margin: 0 0 12px;
+  font-size: 0.92rem;
+}
+
+.panel input,
+.panel button {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #ddcfc0;
+  background: #f7f2eb;
+  color: var(--muted);
+  font: inherit;
+}
+
+.panel button { font-weight: 700; margin-top: 4px; }
+
+.back {
+  display: inline-block;
+  margin-top: 14px;
+  color: var(--brand);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+@media (max-width: 980px) {
+  .rest-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 720px) {
+  .menu { grid-template-columns: 1fr; }
+  .bar {
+    column-gap: 10px;
+    padding: 10px 12px;
+  }
+  .brand { font-size: 1rem; }
+  .account { font-size: 0.92rem; gap: 6px; }
+}
+
+@media (max-width: 520px) {
+  .rest-grid { grid-template-columns: 1fr; }
+  .brand { font-size: 0.92rem; }
+  .account { font-size: 0.8rem; }
+  .search input { padding: 8px 10px; }
+}
+</style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="bar">
+      <a class="brand" href="index.html">Harbi Yemek 7</a>
+      <form class="search" role="search" action="index.html" method="get">
+        <label class="visually-hidden" for="q">Restoran veya yemek ara</label>
+        <input id="q" name="q" type="search" placeholder="Restoran veya yemek ara" autocomplete="off">
+      </form>
+      <nav class="account" aria-label="Hesap">
+        <a href="uye-ol.html" aria-current="page">Üye ol</a>
+        <span class="slash" aria-hidden="true">/</span>
+        <a href="giris.html">Giriş Yap</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="panel">
+    <h1>Üye ol</h1>
+    <p class="banner" role="status">Bu form henüz bağlanmadı.</p>
+    <form action="uye-ol.html" method="get">
+      <label>Ad soyad
+        <input type="text" name="ad" autocomplete="name" disabled>
+      </label>
+      <label>E-posta
+        <input type="email" name="eposta" autocomplete="email" disabled>
+      </label>
+      <label>Şifre
+        <input type="password" name="sifre" autocomplete="new-password" disabled>
+      </label>
+      <button type="submit" disabled>Üye ol</button>
+    </form>
+    <a class="back" href="index.html">Ana sayfaya dön</a>
+  </main>
+</body>
+</html>
