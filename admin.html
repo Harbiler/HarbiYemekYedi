@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yönetim — Harbi Yemek 7</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body data-page="admin">
+  <header class="site-header">
+    <div class="bar">
+      <a class="brand" href="index.html">Harbi Yemek 7</a>
+      <form class="search" role="search" action="index.html" method="get">
+        <label class="visually-hidden" for="q">Restoran veya yemek ara</label>
+        <input id="q" name="q" type="search" placeholder="Restoran veya yemek ara" autocomplete="off">
+      </form>
+      <nav class="account" aria-label="Hesap">
+        <a href="uye-ol.html">Üye ol</a>
+        <span class="slash" aria-hidden="true">/</span>
+        <a href="giris.html">Giriş Yap</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <h1>Yönetim</h1>
+    <p class="section-note">Ayarlar bu tarayıcıda saklanır. Kapalı il müşteriye görünmez.</p>
+    <section aria-labelledby="iller">
+      <h2 id="iller">İller</h2>
+      <p class="section-note">81 il, alt alta. İle tıklayınca restoran ekleme sayfası açılır.</p>
+      <div id="provinces" class="province-list"></div>
+    </section>
+    <section aria-labelledby="odeme">
+      <h2 id="odeme">Ödeme yöntemleri</h2>
+      <p class="section-note">Yalnızca açık olanlar müşteriye, sepette görünür.</p>
+      <div id="gateways" class="province-list"></div>
+    </section>
+    <section aria-labelledby="restoranlar">
+      <h2 id="restoranlar">Restoranlar</h2>
+      <div id="admin-restaurants"></div>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <p class="admin-entry"><a href="index.html">Ana sayfa</a></p>
+  </footer>
+  <script src="site.js"></script>
+</body>
+</html>

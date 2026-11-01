@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>İl — Harbi Yemek 7</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body data-page="city">
+  <header class="site-header">
+    <div class="bar">
+      <a class="brand" href="index.html">Harbi Yemek 7</a>
+      <form class="search" role="search" action="index.html" method="get">
+        <label class="visually-hidden" for="q">Restoran veya yemek ara</label>
+        <input id="q" name="q" type="search" placeholder="Restoran veya yemek ara" autocomplete="off">
+      </form>
+      <nav class="account" aria-label="Hesap">
+        <a href="uye-ol.html">Üye ol</a>
+        <span class="slash" aria-hidden="true">/</span>
+        <a href="giris.html">Giriş Yap</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <p class="eyebrow">İl</p>
+    <h1 id="city-title">İl</h1>
+    <p id="city-closed" class="notice warn" hidden></p>
+    <p id="city-note" class="notice" hidden></p>
+    <form id="add-form" class="sheet" data-form="add-restaurant">
+      <h2>Restoran ekle</h2>
+      <label class="field">Restoran adı
+        <input name="ad" required>
+      </label>
+      <label class="field">Mutfak
+        <input name="mutfak" required>
+      </label>
+      <label class="field">Adres
+        <input name="adres" required>
+      </label>
+      <label class="field">IBAN
+        <input name="iban" required autocomplete="off">
+      </label>
+      <button class="btn" type="submit">Restoran ekle</button>
+    </form>
+    <div id="city-restaurants"></div>
+    <p class="admin-entry"><a href="admin.html">İllere dön</a></p>
+  </main>
+  <script src="site.js"></script>
+</body>
+</html>
