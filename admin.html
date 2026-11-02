@@ -73,14 +73,28 @@
       </form>
       <div id="categories-market" class="category-list"></div>
     </section>
+    <section class="sheet" aria-labelledby="kat-cicekci">
+      <h2 id="kat-cicekci">Çiçekçi Kategorileri</h2>
+      <form data-form="add-category" data-kind="cicekci">
+        <label class="field">Kategori adı<input name="ad" required></label>
+        <p id="category-note-cicekci" class="notice" hidden></p>
+        <button class="btn" type="submit">Ekle</button>
+      </form>
+      <div id="categories-cicekci" class="category-list"></div>
+    </section>
     <section aria-labelledby="is-ortagi-basvuru">
       <h2 id="is-ortagi-basvuru">İş ortağı başvuruları</h2>
-      <p class="section-note">Onaylanınca restoran listeye girer, kurye sipariş alabilir. İkisi de giriş yapabilir.</p>
+      <p class="section-note">Onaylanınca restoran, su, market veya çiçekçi listeye girer, kurye sipariş alabilir. Hepsi giriş yapabilir.</p>
       <div id="partner-applications"></div>
     </section>
     <section aria-labelledby="restoranlar">
       <h2 id="restoranlar">Restoranlar</h2>
       <div id="admin-restaurants"></div>
+    </section>
+    <section aria-labelledby="cicekciler">
+      <h2 id="cicekciler">Çiçekçiler</h2>
+      <p class="section-note">Onaylı çiçekçilerin profilini buradan düzenleyin. Kapalı olanlar ana sayfada görünmez.</p>
+      <div id="admin-florists"></div>
     </section>
   </main>
   <footer class="site-footer">
