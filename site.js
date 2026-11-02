@@ -1722,6 +1722,14 @@ function onClick(event) {
     button.setAttribute("aria-expanded", open ? "true" : "false");
     return;
   }
+  if (action === "toggle-partner-panel") {
+    const panel = document.getElementById(button.getAttribute("aria-controls") || "");
+    if (!panel) return;
+    const open = panel.hidden;
+    panel.hidden = !open;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    return;
+  }
   if (action === "delete-restaurant") {
     const id = button.dataset.id;
     state.restaurants = state.restaurants.filter(function (restaurant) { return restaurant.id !== id; });

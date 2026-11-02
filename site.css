@@ -458,7 +458,8 @@ a { color: inherit; }
 .section-toggle[aria-expanded="true"]::after {
   content: " ▾";
 }
-#district-restaurant-form[hidden] { display: none; }
+#district-restaurant-form[hidden],
+.partner-apply-panel[hidden] { display: none; }
 
 .lanes {
   display: flex;

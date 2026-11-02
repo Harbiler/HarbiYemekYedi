@@ -26,53 +26,63 @@
 
   <main class="wrap">
     <h1>İş ortağı ol</h1>
-    <p class="section-note">Restoran, su, market, çiçekçi ve kurye başvuruları burada kalır. Admin onaylayınca hesap aktif olur ve giriş açılır.</p>
-    <section class="sheet">
-      <h2>İşletme üyeliği</h2>
-      <p class="section-note">Tür ve ilçe seçin. Onaydan önce işletme listede görünmez.</p>
-      <p id="partner-apply-note" class="notice" hidden></p>
-      <form data-form="partner-apply">
-        <label class="field">İşletme türü
-          <select name="tur" required>
-            <option value="">Seçin</option>
-            <option value="restoran">Restoran</option>
-            <option value="su">Su</option>
-            <option value="market">Market</option>
-            <option value="cicekci">Çiçekçi</option>
-          </select>
-        </label>
-        <label class="field">İşletme adı<input name="ad" required></label>
-        <label class="field">Telefon<input name="telefon" required></label>
-        <label class="field">E-posta<input type="email" name="eposta" required></label>
-        <label class="field">Şifre<input type="password" name="sifre" required></label>
-        <label class="field">Adres<input name="adres" required></label>
-        <label class="field">İl<select name="il" required></select></label>
-        <label class="field">İlçe
-          <select name="ilce" required>
-            <option value="">İlçe seçin</option>
-          </select>
-        </label>
-        <label class="field" id="partner-photo-field" hidden>İşletme profil resmi<input name="resim" type="file" accept="image/*"></label>
-        <button class="btn" type="submit">Başvur</button>
-      </form>
+    <p class="section-note">İşletme veya kurye başvurusunu tıklayınca form açılır. Admin onaylayınca hesap aktif olur ve giriş açılır.</p>
+
+    <section class="sheet" aria-labelledby="isletme-basvuru">
+      <h2 id="isletme-basvuru">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="business-apply-panel">İşletme başvurusu</button>
+      </h2>
+      <div id="business-apply-panel" class="partner-apply-panel" hidden>
+        <p class="section-note">Tür ve ilçe seçin. Onaydan önce işletme listede görünmez.</p>
+        <p id="partner-apply-note" class="notice" hidden></p>
+        <form data-form="partner-apply">
+          <label class="field">İşletme türü
+            <select name="tur" required>
+              <option value="">Seçin</option>
+              <option value="restoran">Restoran</option>
+              <option value="su">Su</option>
+              <option value="market">Market</option>
+              <option value="cicekci">Çiçekçi</option>
+            </select>
+          </label>
+          <label class="field">İşletme adı<input name="ad" required></label>
+          <label class="field">Telefon<input name="telefon" required></label>
+          <label class="field">E-posta<input type="email" name="eposta" required></label>
+          <label class="field">Şifre<input type="password" name="sifre" required></label>
+          <label class="field">Adres<input name="adres" required></label>
+          <label class="field">İl<select name="il" required></select></label>
+          <label class="field">İlçe
+            <select name="ilce" required>
+              <option value="">İlçe seçin</option>
+            </select>
+          </label>
+          <label class="field" id="partner-photo-field" hidden>İşletme profil resmi<input name="resim" type="file" accept="image/*"></label>
+          <button class="btn" type="submit">Başvur</button>
+        </form>
+      </div>
     </section>
-    <section class="sheet">
-      <h2>Kurye başvurusu</h2>
-      <p class="section-note">Onaydan önce sipariş atanmaz ve giriş açılmaz.</p>
-      <p id="courier-apply-note" class="notice" hidden></p>
-      <form data-form="courier-apply">
-        <label class="field">Ad soyad<input name="ad" required></label>
-        <label class="field">Telefon<input name="telefon" required></label>
-        <label class="field">Mail<input type="email" name="eposta" required></label>
-        <label class="field">Şifre<input type="password" name="sifre" required></label>
-        <label class="field">İl<select name="il" required></select></label>
-        <label class="field">İlçe
-          <select name="ilce" required>
-            <option value="">İlçe seçin</option>
-          </select>
-        </label>
-        <button class="btn" type="submit">Başvur</button>
-      </form>
+
+    <section class="sheet" aria-labelledby="kurye-basvuru">
+      <h2 id="kurye-basvuru">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="courier-apply-panel">Kurye başvurusu</button>
+      </h2>
+      <div id="courier-apply-panel" class="partner-apply-panel" hidden>
+        <p class="section-note">Onaydan önce sipariş atanmaz ve giriş açılmaz.</p>
+        <p id="courier-apply-note" class="notice" hidden></p>
+        <form data-form="courier-apply">
+          <label class="field">Ad soyad<input name="ad" required></label>
+          <label class="field">Telefon<input name="telefon" required></label>
+          <label class="field">Mail<input type="email" name="eposta" required></label>
+          <label class="field">Şifre<input type="password" name="sifre" required></label>
+          <label class="field">İl<select name="il" required></select></label>
+          <label class="field">İlçe
+            <select name="ilce" required>
+              <option value="">İlçe seçin</option>
+            </select>
+          </label>
+          <button class="btn" type="submit">Başvur</button>
+        </form>
+      </div>
     </section>
   </main>
   <script src="site.js"></script>
