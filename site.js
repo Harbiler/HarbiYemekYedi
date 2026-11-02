@@ -608,6 +608,7 @@ function normalize(data) {
     if (item.status !== "onayli") item.status = "bekliyor";
     if (typeof item.province !== "string") item.province = "";
     if (typeof item.district !== "string") item.district = "";
+    if (typeof item.address !== "string") item.address = "";
     if (typeof item.phone !== "string") item.phone = "";
     if (typeof item.password !== "string") item.password = "";
     if (typeof item.photo !== "string") item.photo = "";
@@ -2691,11 +2692,12 @@ function submitCourierApplication(form) {
   const phone = form.telefon.value.trim();
   const email = normalizeEmail(form.eposta.value);
   const password = String(form.sifre.value || "").trim();
+  const address = form.adres ? form.adres.value.trim() : "";
   const province = form.il.value;
   const district = form.ilce ? form.ilce.value : "";
   const photoFile = pickedFile(form, "resim") || (form.resim && form.resim.files ? form.resim.files[0] : null);
-  if (!name || !phone || !email || !password || PROVINCES.indexOf(province) === -1 || districtsOf(province).indexOf(district) === -1 || !photoFile) {
-    note("#courier-apply-note", "Ad, telefon, e-posta, şifre, şehir, ilçe ve profil resmi gerekli.", false);
+  if (!name || !phone || !email || !password || !address || PROVINCES.indexOf(province) === -1 || districtsOf(province).indexOf(district) === -1 || !photoFile) {
+    note("#courier-apply-note", "Ad, telefon, e-posta, şifre, adres, şehir, ilçe ve profil resmi gerekli.", false);
     return;
   }
   if (email === "kurye@harbiyemek7.com" || email === "admin@harbiyemek7.com") {
@@ -2721,6 +2723,7 @@ function submitCourierApplication(form) {
       phone: phone,
       email: email,
       password: password,
+      address: address,
       province: province,
       district: district,
       photo: photo,
@@ -2749,6 +2752,7 @@ function approveCourierApplication(id) {
       phone: application.phone,
       email: application.email,
       password: application.password,
+      address: application.address || "",
       province: application.province,
       district: application.district || "",
       photo: application.photo || "",
@@ -2759,6 +2763,7 @@ function approveCourierApplication(id) {
     state.couriers.push(courier);
   }
   if (application.district) courier.district = application.district;
+  if (application.address) courier.address = application.address;
   courier.approved = true;
   courier.email = application.email;
   courier.province = application.province;
@@ -4004,6 +4009,8 @@ function renderCourier() {
       + '<label class="field">Mail<input type="email" name="eposta" required></label>'
       + '<label class="field">Şifre<input type="password" name="sifre" required></label>'
       + '<label class="field">Şehir<select name="il" required>' + provinceSelectHtml() + "</select></label>"
+      + '<label class="field">İlçe<select name="ilce" required><option value="">İlçe seçin</option></select></label>'
+      + '<label class="field">Adres<input name="adres" required></label>'
       + '<label class="field">Profil resmi<input name="resim" type="file" accept="image/*" required></label>'
       + '<button class="btn" type="submit">Başvur</button></form></section>';
     return;
@@ -4075,8 +4082,10 @@ function renderCourierAdmin() {
   const applications = pending.length
     ? pending.map(function (item) {
       const photo = item.photo ? '<img class="item-photo" src="' + esc(item.photo) + '" alt="">' : "";
+      const place = [item.province, item.district].filter(Boolean).join(" / ");
       return '<article class="order">' + photo + "<h3>" + esc(item.name) + "</h3>"
-        + '<p class="meta">' + esc(item.province) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
+        + '<p class="meta">' + esc(place) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
+        + (item.address ? '<p class="meta">' + esc(item.address) + "</p>" : "")
         + '<div class="actions"><button class="btn" type="button" data-action="approve-application" data-id="' + esc(item.id) + '">Onayla</button></div></article>';
     }).join("")
     : '<p class="empty">Bekleyen başvuru yok.</p>';
