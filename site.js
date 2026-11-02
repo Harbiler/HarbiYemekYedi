@@ -2,6 +2,8 @@
 
 const KEY = "harbi-yemek-7";
 const COMMISSION = 0.05;
+// Google Cloud Places anahtarı isteğe bağlı. Asıl öneriler /api/google-address ile Google Haritalar'dan gelir.
+const GOOGLE_MAPS_KEY = "";
 
 const PROVINCES = [
   "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya",
@@ -165,15 +167,55 @@ function districtInText(text) {
   return province ? found : "";
 }
 
+function stripCountryLabel(part) {
+  const key = String(part || "").trim().toLocaleLowerCase("tr");
+  if (!key) return "";
+  if (key === "türkiye" || key === "turkey" || key === "turkiye") return "";
+  return String(part || "").trim();
+}
+
+function placeFromSlashSegment(segment) {
+  const raw = String(segment || "").trim();
+  const match = raw.match(/^([^\/]+)\s*\/\s*([^\/]+)$/);
+  if (!match) return null;
+  const left = stripCountryLabel(match[1]);
+  const right = stripCountryLabel(match[2]);
+  if (!left || !right) return null;
+  const provinceRight = provinceNamed(right);
+  if (provinceRight) {
+    const district = districtsOf(provinceRight).indexOf(left) !== -1 ? left : matchDistrict(provinceRight, left);
+    return { province: provinceRight, district: district };
+  }
+  const provinceLeft = provinceNamed(left);
+  if (provinceLeft) {
+    const district = districtsOf(provinceLeft).indexOf(right) !== -1 ? right : matchDistrict(provinceLeft, right);
+    return { province: provinceLeft, district: district };
+  }
+  return null;
+}
+
 function customerPlaceFromAddress(text) {
   const raw = String(text || "").trim();
   if (!raw) return { province: "", district: "" };
   if (isLuleburgazCustomerAddress(raw)) return { province: "Kırklareli", district: "Lüleburgaz" };
-  const parts = raw.split(",").map(function (part) { return part.trim(); }).filter(Boolean);
+  const parts = raw.split(",").map(function (part) { return stripCountryLabel(part); }).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const slash = placeFromSlashSegment(parts[i]);
+    if (slash && slash.province) {
+      if (!slash.district) slash.district = matchDistrict(slash.province, raw);
+      return slash;
+    }
+  }
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const province = provinceNamed(parts[i]);
     if (!province) continue;
-    return { province: province, district: matchDistrict(province, raw) };
+    let district = "";
+    if (i > 0) {
+      const prev = parts[i - 1];
+      if (districtsOf(province).indexOf(prev) !== -1) district = prev;
+    }
+    if (!district) district = matchDistrict(province, raw);
+    return { province: province, district: district };
   }
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const province = provinceByDistrict(parts[i]);
@@ -548,6 +590,7 @@ function normalize(data) {
     if (typeof item.province !== "string") item.province = "";
     if (typeof item.phone !== "string") item.phone = "";
     if (typeof item.password !== "string") item.password = "";
+    if (typeof item.photo !== "string") item.photo = "";
   });
   if (!next.courierAssign || typeof next.courierAssign !== "object") next.courierAssign = {};
   if (next.courierAssign.luleburgaz !== "manuel" && next.courierAssign.luleburgaz !== "otomatik") {
@@ -1236,6 +1279,63 @@ const LOCAL_ADDRESSES = [
 
 let addressTimer = 0;
 let addressRequest = 0;
+let googlePlacesPromise = null;
+let googlePlacesOk = false;
+
+function rememberMapsKeyFromUrl() {
+  const key = qs("mapsKey") || qs("mapskey") || "";
+  if (!key) return;
+  try { storage().setItem("harbiMapsKey", key); } catch (err) {}
+}
+
+function googleMapsKey() {
+  rememberMapsKeyFromUrl();
+  if (GOOGLE_MAPS_KEY && String(GOOGLE_MAPS_KEY).trim()) return String(GOOGLE_MAPS_KEY).trim();
+  try {
+    const saved = storage().getItem("harbiMapsKey");
+    if (saved && String(saved).trim()) return String(saved).trim();
+  } catch (err) {}
+  return "";
+}
+
+function ensureGooglePlaces() {
+  if (googlePlacesOk && window.google && google.maps && google.maps.places) {
+    return Promise.resolve(true);
+  }
+  if (googlePlacesPromise) return googlePlacesPromise;
+  const key = googleMapsKey();
+  if (!key) {
+    googlePlacesPromise = Promise.resolve(false);
+    return googlePlacesPromise;
+  }
+  googlePlacesPromise = new Promise(function (resolve) {
+    const done = function (ok) {
+      googlePlacesOk = !!ok;
+      resolve(!!ok);
+    };
+    window.gm_authFailure = function () { done(false); };
+    if (window.google && google.maps && google.maps.places) {
+      done(true);
+      return;
+    }
+    const existing = document.querySelector("script[data-harbi-maps]");
+    if (existing) {
+      existing.addEventListener("load", function () { done(!!(window.google && google.maps && google.maps.places)); });
+      existing.addEventListener("error", function () { done(false); });
+      return;
+    }
+    const callbackName = "__harbiGoogleMapsReady";
+    window[callbackName] = function () { done(!!(window.google && google.maps && google.maps.places)); };
+    const script = document.createElement("script");
+    script.async = true;
+    script.dataset.harbiMaps = "1";
+    script.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(key)
+      + "&libraries=places&language=tr&region=TR&loading=async&callback=" + callbackName;
+    script.onerror = function () { done(false); };
+    document.head.appendChild(script);
+  });
+  return googlePlacesPromise;
+}
 
 function localAddressMatches(query) {
   const q = query.toLocaleLowerCase("tr");
@@ -1258,6 +1358,109 @@ function formatPhoton(feature) {
   if (city && parts.indexOf(city) === -1) parts.push(city);
   if (props.state && parts.indexOf(props.state) === -1) parts.push(props.state);
   return parts.join(", ");
+}
+
+function formatGooglePrediction(item) {
+  if (!item) return "";
+  return String(item.description || "").trim();
+}
+
+function mergeAddressLines() {
+  const seen = {};
+  const merged = [];
+  Array.prototype.forEach.call(arguments, function (list) {
+    (list || []).forEach(function (line) {
+      const text = String(line || "").trim();
+      if (!text) return;
+      const key = text.toLocaleLowerCase("tr");
+      if (seen[key]) return;
+      seen[key] = true;
+      merged.push(text);
+    });
+  });
+  return merged;
+}
+
+function fetchGoogleMapsSuggest(query) {
+  const url = "/api/google-address?q=" + encodeURIComponent(query);
+  return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    if (!data || !data.ok) return [];
+    return (data.suggestions || []).map(function (line) { return String(line || "").trim(); }).filter(Boolean);
+  }).catch(function () { return []; });
+}
+
+function fetchGooglePlacesSdkSuggestions(query) {
+  return ensureGooglePlaces().then(function (ok) {
+    if (!ok || !window.google || !google.maps || !google.maps.places) return [];
+    return new Promise(function (resolve) {
+      try {
+        const svc = new google.maps.places.AutocompleteService();
+        svc.getPlacePredictions({
+          input: query,
+          componentRestrictions: { country: "tr" },
+          language: "tr",
+          types: ["geocode"]
+        }, function (predictions, status) {
+          if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+            resolve([]);
+            return;
+          }
+          resolve(predictions.map(formatGooglePrediction).filter(Boolean).slice(0, 6));
+        });
+      } catch (err) {
+        resolve([]);
+      }
+    });
+  });
+}
+
+function fetchGoogleAddressSuggestions(query) {
+  return fetchGoogleMapsSuggest(query).then(function (lines) {
+    if (lines && lines.length) return lines;
+    return fetchGooglePlacesSdkSuggestions(query);
+  });
+}
+
+function formatNominatim(item) {
+  if (!item) return "";
+  const display = String(item.display_name || "").trim();
+  if (!display) return "";
+  const addr = item.address || {};
+  if (addr.country_code && String(addr.country_code).toLowerCase() !== "tr") return "";
+  return display
+    .replace(/, Marmara Bölgesi/gi, "")
+    .replace(/, İç Anadolu Bölgesi/gi, "")
+    .replace(/, Ege Bölgesi/gi, "")
+    .replace(/, Akdeniz Bölgesi/gi, "")
+    .replace(/, Karadeniz Bölgesi/gi, "")
+    .replace(/, Doğu Anadolu Bölgesi/gi, "")
+    .replace(/, Güneydoğu Anadolu Bölgesi/gi, "");
+}
+
+function fetchNominatimAddressSuggestions(query) {
+  const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6"
+    + "&countrycodes=tr&accept-language=tr&q=" + encodeURIComponent(query);
+  return fetch(url, { headers: { Accept: "application/json" } })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      return (Array.isArray(data) ? data : []).map(formatNominatim).filter(Boolean);
+    })
+    .catch(function () { return []; });
+}
+
+function fetchPhotonAddressSuggestions(query) {
+  const url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query)
+    + "&limit=6&lang=en";
+  return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    return (data.features || []).map(formatPhoton).filter(Boolean);
+  }).catch(function () { return []; });
+}
+
+function fetchFallbackAddressSuggestions(query) {
+  return fetchNominatimAddressSuggestions(query).then(function (lines) {
+    if (lines && lines.length) return lines;
+    return fetchPhotonAddressSuggestions(query);
+  });
 }
 
 function cancelAddressLookup() {
@@ -1349,21 +1552,20 @@ function onAddressInput() {
   showSuggestions(local);
   const token = ++addressRequest;
   addressTimer = window.setTimeout(function () {
-    const url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query + " Lüleburgaz")
-      + "&lat=41.403&lon=27.356&limit=5&lang=tr";
-    fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    fetchGoogleAddressSuggestions(query).then(function (googleLines) {
+      if (token !== addressRequest) return null;
+      if (googleLines && googleLines.length) {
+        showSuggestions(mergeAddressLines(local, googleLines).slice(0, 6));
+        return null;
+      }
+      return fetchFallbackAddressSuggestions(query);
+    }).then(function (fallbackLines) {
+      if (fallbackLines == null || token !== addressRequest) return;
+      showSuggestions(mergeAddressLines(local, fallbackLines).slice(0, 6));
+    }).catch(function () {
       if (token !== addressRequest) return;
-      const remote = (data.features || []).map(formatPhoton).filter(Boolean);
-      const seen = {};
-      const merged = [];
-      local.concat(remote).forEach(function (line) {
-        const key = line.toLocaleLowerCase("tr");
-        if (seen[key]) return;
-        seen[key] = true;
-        merged.push(line);
-      });
-      showSuggestions(merged.slice(0, 6));
-    }).catch(function () {});
+      showSuggestions(local);
+    });
   }, 280);
 }
 
@@ -1414,6 +1616,8 @@ function boot() {
   state = load();
   hasAdminSession();
   save(state);
+  rememberMapsKeyFromUrl();
+  ensureGooglePlaces();
   const query = qs("q");
   const search = document.querySelector("#q");
   if (search && query) search.value = query;
@@ -2137,8 +2341,9 @@ function submitCourierApplication(form) {
   const email = normalizeEmail(form.eposta.value);
   const password = String(form.sifre.value || "").trim();
   const province = form.il.value;
-  if (!name || !phone || !email || !password || PROVINCES.indexOf(province) === -1) {
-    note("#courier-apply-note", "Ad, telefon, e-posta, şifre ve şehir gerekli.", false);
+  const photoFile = pickedFile(form, "resim") || (form.resim && form.resim.files ? form.resim.files[0] : null);
+  if (!name || !phone || !email || !password || PROVINCES.indexOf(province) === -1 || !photoFile) {
+    note("#courier-apply-note", "Ad, telefon, e-posta, şifre, şehir ve profil resmi gerekli.", false);
     return;
   }
   if (email === "kurye@harbiyemek7.com" || email === "admin@harbiyemek7.com") {
@@ -2151,18 +2356,31 @@ function submitCourierApplication(form) {
     note("#courier-apply-note", "Bu e-posta ile başvuru var.", false);
     return;
   }
-  state.courierApplications.push({
-    id: uid("b"),
-    name: name,
-    phone: phone,
-    email: email,
-    password: password,
-    province: province,
-    status: "bekliyor"
+  const button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  readImageFile(photoFile).then(function (photo) {
+    if (!photo) {
+      note("#courier-apply-note", "Profil resmi kaydedilemedi.", false);
+      return;
+    }
+    state.courierApplications.push({
+      id: uid("b"),
+      name: name,
+      phone: phone,
+      email: email,
+      password: password,
+      province: province,
+      photo: photo,
+      status: "bekliyor"
+    });
+    persist();
+    form.reset();
+    note("#courier-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
+  }).catch(function () {
+    note("#courier-apply-note", "Profil resmi kaydedilemedi.", false);
+  }).then(function () {
+    if (button) button.disabled = false;
   });
-  persist();
-  form.reset();
-  note("#courier-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
 }
 
 function approveCourierApplication(id) {
@@ -2178,6 +2396,7 @@ function approveCourierApplication(id) {
       email: application.email,
       password: application.password,
       province: application.province,
+      photo: application.photo || "",
       company: "Harbi Kuryeler",
       approved: true,
       iban: ""
@@ -2190,6 +2409,7 @@ function approveCourierApplication(id) {
   courier.name = application.name;
   courier.phone = application.phone;
   courier.password = application.password;
+  if (application.photo) courier.photo = application.photo;
 }
 
 function submitRestaurant(form) {
@@ -3362,6 +3582,7 @@ function renderCourier() {
       + '<label class="field">Mail<input type="email" name="eposta" required></label>'
       + '<label class="field">Şifre<input type="password" name="sifre" required></label>'
       + '<label class="field">Şehir<select name="il" required>' + provinceSelectHtml() + "</select></label>"
+      + '<label class="field">Profil resmi<input name="resim" type="file" accept="image/*" required></label>'
       + '<button class="btn" type="submit">Başvur</button></form></section>';
     return;
   }
@@ -3431,7 +3652,8 @@ function renderCourierAdmin() {
   });
   const applications = pending.length
     ? pending.map(function (item) {
-      return '<article class="order"><h3>' + esc(item.name) + "</h3>"
+      const photo = item.photo ? '<img class="item-photo" src="' + esc(item.photo) + '" alt="">' : "";
+      return '<article class="order">' + photo + "<h3>" + esc(item.name) + "</h3>"
         + '<p class="meta">' + esc(item.province) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
         + '<div class="actions"><button class="btn" type="button" data-action="approve-application" data-id="' + esc(item.id) + '">Onayla</button></div></article>';
     }).join("")
