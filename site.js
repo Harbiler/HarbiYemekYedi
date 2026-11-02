@@ -361,6 +361,26 @@ var FOOD_PHOTOS = {
   "r-firin": "https://images.unsplash.com/photo-1777315387678-1f503093a13e?auto=format&fit=max&w=1200&q=75"
 };
 
+var LEGACY_DEMO_RESTAURANT_IDS = { "r-trakya": 1, "r-pide": 1, "r-balkan": 1, "r-firin": 1 };
+var LEGACY_DEMO_RESTAURANT_NAMES = {
+  "trakya ocakbaşı": 1,
+  "mahalle pidecisi": 1,
+  "balkan sofrası": 1,
+  "istasyon fırını": 1
+};
+
+function isLegacyDemoRestaurant(restaurant) {
+  if (!restaurant) return false;
+  if (LEGACY_DEMO_RESTAURANT_IDS[restaurant.id]) return true;
+  var name = String(restaurant.name || "").trim().toLocaleLowerCase("tr");
+  return !!LEGACY_DEMO_RESTAURANT_NAMES[name];
+}
+
+function stripLegacyDemoRestaurants(restaurants) {
+  if (!Array.isArray(restaurants)) return [];
+  return restaurants.filter(function (item) { return !isLegacyDemoRestaurant(item); });
+}
+
 function readDataFile(file) {
   return new Promise(function (resolve, reject) {
     if (!file || !file.size) {
@@ -418,6 +438,7 @@ function ferahRestaurant() {
   return {
     id: "r-ferah", province: "Kırklareli", district: "Lüleburgaz", name: "Ferah Lahmacun", cuisine: "Lahmacun",
     address: "Cumhuriyet Mah. Lüleburgaz", iban: "TR00 0000 0000 0000 0000 0000 05",
+    email: "ferah@harbiyemek7.com", password: "Harbi7", approved: true,
     payoutIban: "", payoutAddress: "", payoutSaved: false, color: "#c45c26", eta: "20–30 dk", min: 80,
     photo: FOOD_PHOTOS["r-firin"],
     extras: [], menu: [{ id: "m-ferah-lahmacun", name: "Lahmacun", price: 90 }]
@@ -425,43 +446,7 @@ function ferahRestaurant() {
 }
 
 function seedRestaurants() {
-  return [
-    {
-      id: "r-trakya", province: "Kırklareli", name: "Trakya Ocakbaşı", cuisine: "Izgara",
-      address: "Kurtuluş Mah. Lüleburgaz", iban: "TR00 0000 0000 0000 0000 0000 01",
-      payoutIban: "", payoutAddress: "", payoutSaved: false, color: "#b4532a", eta: "30–45 dk", min: 200,
-      photo: FOOD_PHOTOS["r-trakya"],
-      extras: [], menu: [{ id: "m-adana", name: "Adana kebap", price: 280 }]
-    },
-    {
-      id: "r-pide", province: "Kırklareli", name: "Mahalle Pidecisi", cuisine: "Pide",
-      address: "Yıldız Mah. Lüleburgaz", iban: "TR00 0000 0000 0000 0000 0000 02",
-      payoutIban: "", payoutAddress: "", payoutSaved: false, color: "#c4923a", eta: "20–35 dk", min: 120,
-      photo: FOOD_PHOTOS["r-pide"],
-      extras: [], menu: [
-        { id: "m-pide", name: "Kaşarlı pide", price: 220 },
-        { id: "m-kunefe", name: "Künefe", price: 160 }
-      ]
-    },
-    {
-      id: "r-balkan", province: "Kırklareli", name: "Balkan Sofrası", cuisine: "Ev yemeği",
-      address: "Barış Mah. Lüleburgaz", iban: "TR00 0000 0000 0000 0000 0000 03",
-      payoutIban: "", payoutAddress: "", payoutSaved: false, color: "#3f6b4e", eta: "25–40 dk", min: 150,
-      photo: FOOD_PHOTOS["r-balkan"],
-      extras: [], menu: [
-        { id: "m-fasulye", name: "Kuru fasulye, pilav", price: 175 },
-        { id: "m-salata", name: "Çoban salata", price: 85 }
-      ]
-    },
-    {
-      id: "r-firin", province: "Kırklareli", name: "İstasyon Fırını", cuisine: "Fırın",
-      address: "İstasyon Mah. Lüleburgaz", iban: "TR00 0000 0000 0000 0000 0000 04",
-      payoutIban: "", payoutAddress: "", payoutSaved: false, color: "#a33b32", eta: "15–30 dk", min: 90,
-      photo: FOOD_PHOTOS["r-firin"],
-      extras: [], menu: [{ id: "m-lahmacun", name: "Lahmacun", price: 95 }]
-    },
-    ferahRestaurant()
-  ];
+  return [ferahRestaurant()];
 }
 
 function ensureDemoLuleburgazCourier(couriers) {
@@ -522,6 +507,9 @@ function ensureFerahRestaurant(restaurants) {
   }
   restaurant.province = "Kırklareli";
   restaurant.district = "Lüleburgaz";
+  restaurant.approved = true;
+  if (!restaurant.email) restaurant.email = "ferah@harbiyemek7.com";
+  if (!restaurant.password) restaurant.password = "Harbi7";
   if (matchDistrict("Kırklareli", restaurant.address || "") !== "Lüleburgaz") {
     restaurant.address = "Cumhuriyet Mah. Lüleburgaz";
   }
@@ -538,6 +526,7 @@ function normalize(data) {
     if (typeof next.gateways[item.id] !== "boolean") next.gateways[item.id] = item.on;
   });
   if (!Array.isArray(next.restaurants)) next.restaurants = [];
+  next.restaurants = stripLegacyDemoRestaurants(next.restaurants);
   ensureFerahRestaurant(next.restaurants);
   if (!Array.isArray(next.users)) next.users = [];
   ensureCustomerAccount(next.users);
@@ -626,7 +615,10 @@ function normalize(data) {
   if (typeof next.commissionIban !== "string") next.commissionIban = "";
   if (!Array.isArray(next.cart)) next.cart = [];
   next.cart = next.cart.filter(function (line) {
-    return line && typeof line.restaurantId === "string" && typeof line.itemId === "string" && Number(line.qty) > 0;
+    if (!line || typeof line.restaurantId !== "string" || typeof line.itemId !== "string" || Number(line.qty) <= 0) {
+      return false;
+    }
+    return !LEGACY_DEMO_RESTAURANT_IDS[line.restaurantId];
   });
   next.cart.forEach(function (line) {
     line.qty = Number(line.qty) || 0;
