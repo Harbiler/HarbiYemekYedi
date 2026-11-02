@@ -1015,6 +1015,17 @@ a.rest:focus-visible { outline: 2px solid var(--chili); outline-offset: 3px; }
   height: 18px;
   accent-color: var(--header);
 }
+.integration-card {
+  margin-top: 14px;
+}
+.integration-card .gateway-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--header);
+}
+.sepet-takip-status.warn {
+  color: #9a3412;
+}
 .group-label {
   margin: 18px 0 8px;
   color: var(--muted);

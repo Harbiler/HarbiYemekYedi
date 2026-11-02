@@ -354,8 +354,166 @@ function blankState() {
     restaurantApplications: [],
     floristApplications: [],
     regions: [],
-    supervisors: []
+    supervisors: [],
+    courierIntegrations: {
+      sepetTakip: {
+        apiKey: "",
+        secretKey: "",
+        baseUrl: "https://api.sepettakip.com",
+        lastLog: null
+      }
+    }
   };
+}
+
+var SEPET_TAKIP_DEFAULT_BASE = "https://api.sepettakip.com";
+
+function normalizeSepetTakipIntegration(raw) {
+  const bag = raw && typeof raw === "object" ? raw : {};
+  const last = bag.lastLog && typeof bag.lastLog === "object" ? bag.lastLog : null;
+  return {
+    apiKey: typeof bag.apiKey === "string" ? bag.apiKey : "",
+    secretKey: typeof bag.secretKey === "string" ? bag.secretKey : "",
+    baseUrl: typeof bag.baseUrl === "string" && bag.baseUrl.trim() ? bag.baseUrl.trim() : SEPET_TAKIP_DEFAULT_BASE,
+    lastLog: last && typeof last.message === "string"
+      ? { at: typeof last.at === "string" ? last.at : "", ok: !!last.ok, message: last.message, orderId: typeof last.orderId === "string" ? last.orderId : "" }
+      : null
+  };
+}
+
+function normalizeCourierIntegrations(raw) {
+  const bag = raw && typeof raw === "object" ? raw : {};
+  return { sepetTakip: normalizeSepetTakipIntegration(bag.sepetTakip) };
+}
+
+function normalizeRestaurantIntegrations(raw) {
+  const bag = raw && typeof raw === "object" ? raw : {};
+  return { sepetTakip: bag.sepetTakip === true };
+}
+
+function sepetTakipConfigured(state) {
+  const cfg = state && state.courierIntegrations && state.courierIntegrations.sepetTakip;
+  return !!(cfg && String(cfg.apiKey || "").trim() && String(cfg.secretKey || "").trim());
+}
+
+function restaurantSepetTakipEnabled(restaurant) {
+  return !!(restaurant && restaurant.integrations && restaurant.integrations.sepetTakip);
+}
+
+function maskSecretValue(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  if (text.length <= 4) return "••••";
+  return "••••••••" + text.slice(-4);
+}
+
+function sepetTakipSign(secret, body) {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    return Promise.resolve("");
+  }
+  const enc = new TextEncoder();
+  return crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+    .then(function (key) { return crypto.subtle.sign("HMAC", key, enc.encode(body)); })
+    .then(function (sig) {
+      return Array.from(new Uint8Array(sig)).map(function (byte) {
+        return byte.toString(16).padStart(2, "0");
+      }).join("");
+    });
+}
+
+function sepetTakipPayload(order, restaurant) {
+  return {
+    externalOrderId: order.id,
+    statusCode: "A0",
+    createdAt: order.createdAt || new Date().toISOString(),
+    restaurant: {
+      id: restaurant.id,
+      name: restaurant.name,
+      address: restaurant.address || "",
+      province: restaurant.province || "",
+      district: restaurant.district || ""
+    },
+    customer: {
+      name: orderCustomerName(order),
+      address: orderCustomerPlace(order),
+      firstName: order.customerFirstName || "",
+      lastName: order.customerLastName || ""
+    },
+    lines: (order.lines || []).map(function (line) {
+      return {
+        name: line.name,
+        qty: line.qty,
+        unitPrice: line.price,
+        lineTotal: line.lineTotal,
+        extras: (line.extras || []).map(function (extra) { return { name: extra.name, plus: extra.plus }; })
+      };
+    }),
+    total: order.total,
+    paymentMethod: order.gatewayLabel || "",
+    deliveryMode: order.deliveryMode || "",
+    deliveryLabel: order.deliveryLabel || ""
+  };
+}
+
+function recordSepetTakipLog(state, entry) {
+  if (!state.courierIntegrations) state.courierIntegrations = normalizeCourierIntegrations(null);
+  state.courierIntegrations.sepetTakip.lastLog = {
+    at: new Date().toISOString(),
+    ok: !!entry.ok,
+    message: String(entry.message || ""),
+    orderId: String(entry.orderId || "")
+  };
+}
+
+function applySepetTakipOrderResult(order, ok, message) {
+  order.sepetTakip = {
+    at: new Date().toISOString(),
+    ok: !!ok,
+    message: String(message || "")
+  };
+}
+
+function pushOrderToSepetTakip(state, order, restaurant) {
+  if (!order || !restaurant || !restaurantSepetTakipEnabled(restaurant) || !sepetTakipConfigured(state)) return Promise.resolve(null);
+  const cfg = state.courierIntegrations.sepetTakip;
+  const base = String(cfg.baseUrl || SEPET_TAKIP_DEFAULT_BASE).replace(/\/+$/, "");
+  const payload = sepetTakipPayload(order, restaurant);
+  const body = JSON.stringify(payload);
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Authorization: "Bearer " + String(cfg.apiKey || "").trim(),
+    "X-Api-Key": String(cfg.apiKey || "").trim()
+  };
+  return sepetTakipSign(String(cfg.secretKey || "").trim(), body).then(function (signature) {
+    if (signature) headers["X-Signature"] = signature;
+    return fetch(base + "/v1/orders", { method: "POST", headers: headers, body: body });
+  }).then(function (res) {
+    if (res.ok) {
+      applySepetTakipOrderResult(order, true, "Sepet Takip'e gönderildi");
+      recordSepetTakipLog(state, { ok: true, message: "Sepet Takip'e gönderildi", orderId: order.id });
+      console.info("[Sepet Takip]", order.id, "gönderildi");
+      return res;
+    }
+    return res.text().then(function (text) {
+      const detail = text ? text.slice(0, 120) : "HTTP " + res.status;
+      applySepetTakipOrderResult(order, false, "Sepet Takip hatası: " + detail);
+      recordSepetTakipLog(state, { ok: false, message: "Sepet Takip hatası: " + detail, orderId: order.id });
+      console.warn("[Sepet Takip]", order.id, detail);
+      return res;
+    });
+  }).catch(function (err) {
+    const msg = err && err.message ? err.message : String(err);
+    applySepetTakipOrderResult(order, false, "Sepet Takip bağlantı hatası: " + msg);
+    recordSepetTakipLog(state, { ok: false, message: "Sepet Takip bağlantı hatası: " + msg, orderId: order.id });
+    console.warn("[Sepet Takip]", order.id, msg);
+    return null;
+  }).then(function (result) {
+    persist();
+    if (pageRoot() === "restaurant") renderRestaurant();
+    if (pageRoot() === "admin") renderAdminCourierIntegrations();
+    return result;
+  });
 }
 
 var FOOD_PHOTOS = {
@@ -650,6 +808,7 @@ function normalize(data) {
     if (typeof restaurant.district !== "string") restaurant.district = "";
     if (restaurant.deliveryMode !== "kendi" && restaurant.deliveryMode !== "harbi") restaurant.deliveryMode = "harbi";
     if (restaurant.harbiAssignMode !== "manuel" && restaurant.harbiAssignMode !== "otomatik") restaurant.harbiAssignMode = "otomatik";
+    restaurant.integrations = normalizeRestaurantIntegrations(restaurant.integrations);
     if (typeof restaurant.photo !== "string" || !restaurant.photo) restaurant.photo = photoFor(restaurant);
     restaurant.menu.forEach(function (item) {
       if (!item || typeof item !== "object") return;
@@ -667,6 +826,7 @@ function normalize(data) {
   next.catalogCategories = normalizeCatalogCategories(next.catalogCategories);
   next.regions = normalizeRegionList(next.regions);
   next.supervisors = normalizeSupervisorList(next.supervisors);
+  next.courierIntegrations = normalizeCourierIntegrations(next.courierIntegrations);
   return next;
 }
 
@@ -824,9 +984,32 @@ function deliveryLabel(mode) {
   return mode === "kendi" ? "Kendi Kuryemle" : "Harbi Kurye İle Teslimat";
 }
 
+function sepetTakipRestaurantPanelHtml(restaurant) {
+  const configured = sepetTakipConfigured(state);
+  const enabled = restaurantSepetTakipEnabled(restaurant);
+  const last = state.courierIntegrations && state.courierIntegrations.sepetTakip
+    ? state.courierIntegrations.sepetTakip.lastLog
+    : null;
+  const lastLine = last && last.message
+    ? '<p class="meta">Son entegrasyon: ' + esc(last.message) + (last.at ? " · " + esc(last.at.slice(0, 19).replace("T", " ")) : "") + "</p>"
+    : "";
+  const hint = configured
+    ? "Açıkken sipariş onaylandığında Sepet Takip API'sine gönderilir."
+    : "Yönetim panelinde Sepet Takip API anahtarları tanımlanmadan açılamaz.";
+  return '<section class="sheet integration-card"><h2>Sepet Takip</h2>'
+    + '<p class="section-note">' + esc(hint) + "</p>"
+    + '<label class="gateway-row">'
+    + "<span>Sepet Takip entegrasyonu</span>"
+    + '<input type="checkbox" name="sepetTakipEnabled"' + (enabled ? " checked" : "") + (configured ? "" : " disabled") + ">"
+    + "</label>"
+    + lastLine
+    + '<p id="sepet-takip-note" class="notice" hidden></p></section>';
+}
+
 function deliveryAndAssignPanelHtml(seller) {
   const mode = deliveryModeOf(seller);
   const harbiMode = sellerHarbiAssignMode(seller);
+  const sepetBlock = sellerKind(seller) === "restoran" ? sepetTakipRestaurantPanelHtml(seller) : "";
   return '<section class="sheet"><h2>Teslimat</h2>'
     + '<p class="section-note">Kurye kaynağı ve Harbi Kurye atama tercihi bu tarayıcıda kalır.</p>'
     + '<div class="delivery-grid" role="radiogroup" aria-label="Teslimat kaynağı">'
@@ -838,7 +1021,8 @@ function deliveryAndAssignPanelHtml(seller) {
     + '<label class="gateway-row"><span>Otomatik atama</span><input type="radio" name="harbiAssignMode" value="otomatik"' + (harbiMode === "otomatik" ? " checked" : "") + "></label>"
     + '<label class="gateway-row"><span>Manuel atama</span><input type="radio" name="harbiAssignMode" value="manuel"' + (harbiMode === "manuel" ? " checked" : "") + "></label>"
     + "</div>"
-    + '<p id="delivery-note" class="notice" hidden></p></section>';
+    + '<p id="delivery-note" class="notice" hidden></p></section>'
+    + sepetBlock;
 }
 
 function statusText(order) {
@@ -1308,6 +1492,9 @@ const Harbi = {
   openRestaurants: openRestaurants,
   placeOrder: placeOrder,
   acceptOrder: acceptOrder,
+  approveRestaurantOrder: approveRestaurantOrder,
+  pushOrderToSepetTakip: pushOrderToSepetTakip,
+  sepetTakipConfigured: sepetTakipConfigured,
   declineOrder: declineOrder,
   markReady: markReady,
   courierStep: courierStep,
@@ -2182,6 +2369,18 @@ function onChange(event) {
     }
     return;
   }
+  if (target instanceof HTMLInputElement && target.name === "sepetTakipEnabled") {
+    const restaurant = currentRestaurant();
+    if (!restaurant || !sepetTakipConfigured(state)) {
+      target.checked = false;
+      return;
+    }
+    if (!restaurant.integrations) restaurant.integrations = normalizeRestaurantIntegrations(null);
+    restaurant.integrations.sepetTakip = target.checked;
+    persist();
+    note("#sepet-takip-note", target.checked ? "Sepet Takip açıldı." : "Sepet Takip kapatıldı.", true);
+    return;
+  }
   if (target instanceof HTMLSelectElement && target.dataset.action === "set-assignment-global") {
     if (!state.assignmentDefaults) state.assignmentDefaults = { global: "restoran_secer", byCity: {} };
     const val = target.value;
@@ -2249,6 +2448,7 @@ function onSubmit(event) {
   if (kind === "save-seller-iban") return submitSellerIban(form);
   if (kind === "save-courier-iban") return submitCourierIban(form);
   if (kind === "save-commission-iban") return submitCommissionIban(form);
+  if (kind === "save-sepet-takip") return submitSepetTakipIntegration(form);
   if (kind === "checkout") return submitCheckout(form);
   if (kind === "district-restaurant") return submitDistrictRestaurant(form);
   if (kind === "cart-checkout") return submitCartCheckout(form);
@@ -3592,6 +3792,19 @@ function submitCommissionIban(form) {
   note("#commission-iban-note", "Kaydedildi", true);
 }
 
+function submitSepetTakipIntegration(form) {
+  if (!state.courierIntegrations) state.courierIntegrations = normalizeCourierIntegrations(null);
+  const cfg = state.courierIntegrations.sepetTakip;
+  cfg.apiKey = String(form.apiKey.value || "").trim();
+  const secretInput = String(form.secretKey.value || "").trim();
+  if (secretInput) cfg.secretKey = secretInput;
+  const base = String(form.baseUrl.value || "").trim();
+  cfg.baseUrl = base || SEPET_TAKIP_DEFAULT_BASE;
+  persist();
+  renderAdminCourierIntegrations();
+  note("#sepet-takip-admin-note", "Sepet Takip anahtarları kaydedildi.", true);
+}
+
 function submitSellerIban(form) {
   const seller = currentSeller();
   if (!seller) return;
@@ -3786,9 +3999,12 @@ function mutateRestaurant(orderId) {
 function approveRestaurant(orderId) {
   const restaurant = currentRestaurant();
   if (!restaurant) return;
-  approveRestaurantOrder(state, orderId, restaurant.id);
+  const order = approveRestaurantOrder(state, orderId, restaurant.id);
   persist();
   renderRestaurant();
+  if (order && order.status === "onayli") {
+    pushOrderToSepetTakip(state, order, restaurant);
+  }
 }
 
 function cancelRestaurant(orderId) {
@@ -3988,6 +4204,7 @@ function renderAdmin() {
   renderAdminRestaurants();
   renderAdminFlorists();
   renderAdminCouriers();
+  renderAdminCourierIntegrations();
   renderAdminRegions();
   renderAdminSupervisors();
   renderAdminAccounting();
@@ -4514,6 +4731,9 @@ function orderCard(order, mode) {
     + '<p class="meta">' + esc(payer) + " · " + esc(order.gatewayLabel) + (order.deliveryLabel ? " · " + esc(order.deliveryLabel) : "") + "</p>"
     + '<div class="total-row"><span>Toplam</span><strong>' + lira(order.total) + "</strong></div>"
     + (mode === "restaurant" ? '<p style="margin:8px 0 0"><span class="commission">Ciro ' + lira(orderMoney(order).total) + " · " + esc(commissionText()) + " " + lira(orderMoney(order).commission) + " · Kazanç " + lira(orderMoney(order).net) + "</span></p>" : "")
+    + (order.sepetTakip && order.sepetTakip.message
+      ? '<p class="meta sepet-takip-status' + (order.sepetTakip.ok ? "" : " warn") + '">' + esc(order.sepetTakip.message) + "</p>"
+      : "")
     + courierBlock(order)
     + actions
     + (mode === "courier" ? courierGoMap(order) : "")
@@ -4906,6 +5126,38 @@ function renderAdminCouriers() {
   if (!hasAdminSession()) return;
   root.innerHTML = '<p class="section-note">Ayarlar ve onaylar bu tarayıcıda kalır. Onaylı kurye yalnız kendi şehrindeki siparişi alır.</p>'
     + buildCourierManagementHtml();
+}
+
+function renderAdminCourierIntegrations() {
+  const root = document.querySelector("#admin-courier-integrations");
+  if (!root || !hasAdminSession()) return;
+  const cfg = state.courierIntegrations && state.courierIntegrations.sepetTakip
+    ? state.courierIntegrations.sepetTakip
+    : normalizeSepetTakipIntegration(null);
+  const last = cfg.lastLog && cfg.lastLog.message
+    ? '<p class="meta">Son gönderim: ' + esc(cfg.lastLog.message)
+      + (cfg.lastLog.orderId ? " · " + esc(cfg.lastLog.orderId) : "")
+      + (cfg.lastLog.at ? " · " + esc(cfg.lastLog.at.slice(0, 19).replace("T", " ")) : "")
+      + "</p>"
+    : "";
+  const secretHint = cfg.secretKey
+    ? '<p class="section-note">Kayıtlı gizli anahtar: ' + esc(maskSecretValue(cfg.secretKey)) + ". Değiştirmek için yeni değer girin.</p>"
+    : "";
+  root.innerHTML = '<article class="sheet integration-card">'
+    + "<h3 class=\"admin-subhead\">Sepet Takip entegrasyonu</h3>"
+    + '<p class="section-note">Restoran siparişi onayladığında, Sepet Takip açık işletmeler için POST '
+    + esc(String(cfg.baseUrl || SEPET_TAKIP_DEFAULT_BASE).replace(/\/+$/, "") + "/v1/orders")
+    + " (Bearer + X-Api-Key + HMAC X-Signature). Resmi public şema yok; stub REST.</p>"
+    + secretHint
+    + '<form data-form="save-sepet-takip">'
+    + '<label class="field">API Anahtarı<input name="apiKey" autocomplete="off" value="' + esc(cfg.apiKey) + '"></label>'
+    + '<label class="field">Gizli Anahtar<input name="secretKey" type="password" autocomplete="new-password" placeholder="' + esc(cfg.secretKey ? maskSecretValue(cfg.secretKey) : "Gizli anahtar") + '"></label>'
+    + '<label class="field">API taban adresi<input name="baseUrl" autocomplete="off" value="' + esc(cfg.baseUrl || SEPET_TAKIP_DEFAULT_BASE) + '"></label>'
+    + '<p id="sepet-takip-admin-note" class="notice" hidden></p>'
+    + '<button class="btn" type="submit">Kaydet</button>'
+    + "</form>"
+    + last
+    + "</article>";
 }
 
 function renderCourierAdmin() {
