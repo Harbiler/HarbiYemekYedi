@@ -2418,11 +2418,11 @@ function submitEditCourier(form) {
   const address = form.adres.value.trim();
   const email = normalizeEmail(form.eposta.value);
   const password = String(form.sifre.value || "").trim();
-  if (!firstName || !lastName || !phone || !address || !email || !password) {
-    note("#edit-courier-note", "Ad, soyad, telefon, adres, mail ve şifre gerekli.", false);
+  if (!firstName || !lastName || !phone || !address || !password) {
+    note("#edit-courier-note", "Ad, soyad, telefon, adres ve şifre gerekli.", false);
     return;
   }
-  const taken = (state.couriers || []).some(function (item) {
+  const taken = email && (state.couriers || []).some(function (item) {
     return item && item.id !== courier.id && normalizeEmail(item.email) === email;
   });
   if (taken) {
@@ -2453,12 +2453,22 @@ function submitAddCourier(form) {
   const lastName = form.soyisim.value.trim();
   const phone = form.telefon.value.trim();
   const address = form.adres.value.trim();
+  const email = normalizeEmail(form.eposta.value);
   const tc = form.tc.value.trim();
   const photoFile = pickedFile(form, "resim");
   const residenceFile = pickedFile(form, "ikametgah");
   const recordFile = pickedFile(form, "sabika");
-  if (!firstName || !lastName || !phone || !address || !photoFile || !tc || !residenceFile || !recordFile) {
-    note("#add-courier-note", "İsim, soyisim, telefon, adres, resim, TC, ikametgah ve sabıka kaydı gerekli.", false);
+  if (!firstName || !lastName || !phone || !address || !email || !photoFile || !tc || !residenceFile || !recordFile) {
+    note("#add-courier-note", "İsim, soyisim, telefon, adres, e-posta, resim, TC, ikametgah ve sabıka kaydı gerekli.", false);
+    return;
+  }
+  const emailTaken = (state.couriers || []).some(function (item) {
+    return item && normalizeEmail(item.email) === email;
+  }) || (state.courierApplications || []).some(function (item) {
+    return item && normalizeEmail(item.email) === email;
+  });
+  if (emailTaken) {
+    note("#add-courier-note", "Bu e-posta başka bir kuryede veya başvuruda kayıtlı.", false);
     return;
   }
   const button = form.querySelector('[type="submit"]');
@@ -2468,7 +2478,7 @@ function submitAddCourier(form) {
     const residence = files[1];
     const criminalRecord = files[2];
     if (!photo || !residence || !criminalRecord) {
-      note("#add-courier-note", "İsim, soyisim, telefon, adres, resim, TC, ikametgah ve sabıka kaydı gerekli.", false);
+      note("#add-courier-note", "İsim, soyisim, telefon, adres, e-posta, resim, TC, ikametgah ve sabıka kaydı gerekli.", false);
       return;
     }
     state.couriers.push({
@@ -2482,7 +2492,7 @@ function submitAddCourier(form) {
       photo: photo,
       residence: residence,
       criminalRecord: criminalRecord,
-      email: "",
+      email: email,
       password: "",
       iban: "",
       province: provinceFromAddress(address),
@@ -4528,7 +4538,7 @@ function courierEditForm(courier) {
     + '<label class="field">Soyad<input name="soyisim" required value="' + esc(parts.lastName) + '"></label>'
     + '<label class="field">Telefon<input name="telefon" required value="' + esc(courier.phone || "") + '"></label>'
     + '<label class="field">Adres<textarea name="adres" rows="3" required>' + esc(courier.address || "") + "</textarea></label>"
-    + '<label class="field">Mail<input type="email" name="eposta" required value="' + esc(courier.email || "") + '"></label>'
+    + '<label class="field">E-posta<input type="email" name="eposta" value="' + esc(courier.email || "") + '"></label>'
     + '<label class="field">Şifre<input name="sifre" required value="' + esc(courier.password || "") + '"></label>'
     + '<button class="btn" type="submit">Kaydet</button></form>';
 }
@@ -4591,13 +4601,14 @@ function buildCourierManagementHtml() {
     + '<button type="button" class="btn" data-action="toggle-luleburgaz-assign" aria-pressed="' + (mode === "otomatik" ? "true" : "false") + '">Lüleburgaz: ' + (mode === "manuel" ? "Manuel" : "Otomatik") + "</button>"
     + manualHtml + "</section>"
     + '<section class="sheet"><h3 class="admin-subhead">Kurye ekle</h3>'
-    + '<p class="section-note">İsim, soyisim, telefon, adres, resim, TC, ikametgah belgesi ve sabıka kaydı zorunlu. Biri boşsa kaydedilmez. Kayıt ve belgeler bu tarayıcıda kalır. Adresin sonuna ili yazın; kurye yalnız o şehirdeki siparişi alır.</p>'
+    + '<p class="section-note">İsim, soyisim, telefon, adres, e-posta, resim, TC, ikametgah belgesi ve sabıka kaydı zorunlu. Biri boşsa kaydedilmez. Kayıt ve belgeler bu tarayıcıda kalır. Adresin sonuna ili yazın; kurye yalnız o şehirdeki siparişi alır. Giriş için kurye bilgileri düzenlemeden şifre tanımlayın.</p>'
     + '<p id="add-courier-note" class="notice" hidden></p>'
     + '<form data-form="add-courier">'
     + '<label class="field">İsim<input name="isim" required></label>'
     + '<label class="field">Soyisim<input name="soyisim" required></label>'
     + '<label class="field">Telefon<input name="telefon" required></label>'
     + '<label class="field">Adres<textarea name="adres" rows="3" required></textarea></label>'
+    + '<label class="field">E-posta<input type="email" name="eposta" autocomplete="email" required></label>'
     + '<label class="field">Resim<input name="resim" type="file" accept="image/*" required></label>'
     + '<label class="field">TC<input name="tc" inputmode="numeric" required></label>'
     + '<label class="field">İkametgah belgesi<input name="ikametgah" type="file" accept="image/*,.pdf" required></label>'
