@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>İlçe — Harbi Yemek 7</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body data-page="district">
+  <header class="site-header">
+    <div class="bar">
+      <a class="brand" href="index.html">Harbi Yemek 7</a>
+      <form class="search" role="search" action="index.html" method="get">
+        <label class="visually-hidden" for="q">Restoran veya yemek ara</label>
+        <input id="q" name="q" type="search" placeholder="Mevcut Adres veya Yeni Adresi Gir" autocomplete="off">
+      </form>
+      <nav class="account" aria-label="Hesap">
+        <a href="uye-ol.html">Üye ol</a>
+        <span class="slash" aria-hidden="true">/</span>
+        <a href="giris.html">Giriş Yap</a>
+        <a class="cart" href="siparisler.html" aria-label="Sepet"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.5 7h14l-1.4 8.2a1 1 0 0 1-1 .8H8.2a1 1 0 0 1-1-.8L5.2 4.5H3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="20" r="1.3" fill="currentColor"/><circle cx="17" cy="20" r="1.3" fill="currentColor"/></svg></a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <p class="admin-entry"><a id="district-back" href="admin.html">İle dön</a></p>
+    <p class="eyebrow">İlçe</p>
+    <h1 id="district-title">İlçe</h1>
+    <p id="district-place" class="section-note"></p>
+    <section id="district-restaurant-section" aria-labelledby="restoran-ekle">
+      <h2 id="restoran-ekle"><button type="button" class="section-toggle" data-action="toggle-restaurant-form" aria-expanded="false" aria-controls="district-restaurant-form">Restoran ekle</button></h2>
+      <form id="district-restaurant-form" class="sheet" data-form="district-restaurant" hidden>
+        <p id="district-restaurant-note" class="notice" hidden></p>
+        <label class="field">Restoran adı
+          <input name="ad" required>
+        </label>
+        <label class="field">Mutfak
+          <input name="mutfak" required>
+        </label>
+        <label class="field">Adres
+          <input name="adres" required>
+        </label>
+        <label class="field">IBAN
+          <input name="iban" required autocomplete="off">
+        </label>
+        <label class="field">Restoran resmi
+          <input name="resim" type="file" accept="image/*">
+        </label>
+        <button class="btn" type="submit">Restoranı kaydet</button>
+      </form>
+    </section>
+    <section aria-labelledby="musteriler">
+      <h2 id="musteriler">Kayıtlı müşteriler</h2>
+      <div id="district-customers" class="stack"></div>
+    </section>
+    <section id="district-restaurant-list" aria-labelledby="restoran-yonetim">
+      <h2 id="restoran-yonetim">Restoranlar</h2>
+      <div id="district-restaurants" class="stack"></div>
+    </section>
+  </main>
+  <script src="site.js"></script>
+</body>
+</html>

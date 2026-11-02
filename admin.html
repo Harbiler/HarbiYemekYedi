@@ -12,27 +12,66 @@
       <a class="brand" href="index.html">Harbi Yemek 7</a>
       <form class="search" role="search" action="index.html" method="get">
         <label class="visually-hidden" for="q">Restoran veya yemek ara</label>
-        <input id="q" name="q" type="search" placeholder="Restoran veya yemek ara" autocomplete="off">
+        <input id="q" name="q" type="search" placeholder="Mevcut Adres veya Yeni Adresi Gir" autocomplete="off">
       </form>
       <nav class="account" aria-label="Hesap">
         <a href="uye-ol.html">Üye ol</a>
         <span class="slash" aria-hidden="true">/</span>
         <a href="giris.html">Giriş Yap</a>
+        <a class="cart" href="siparisler.html" aria-label="Sepet"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.5 7h14l-1.4 8.2a1 1 0 0 1-1 .8H8.2a1 1 0 0 1-1-.8L5.2 4.5H3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="20" r="1.3" fill="currentColor"/><circle cx="17" cy="20" r="1.3" fill="currentColor"/></svg></a>
       </nav>
     </div>
   </header>
   <main class="wrap">
     <h1>Yönetim</h1>
     <p class="section-note">Ayarlar bu tarayıcıda saklanır. Kapalı il müşteriye görünmez.</p>
+    <section class="sheet" aria-labelledby="komisyon-iban">
+      <h2 id="komisyon-iban">Komisyon IBAN</h2>
+      <p class="section-note">Her siparişten kesilen %5 bu IBAN’a ayrılır. Kayıt bu tarayıcıda kalır. Bankaya bağlanmaz.</p>
+      <form data-form="save-commission-iban">
+        <label class="field">IBAN
+          <input id="commission-iban" name="iban" autocomplete="off">
+        </label>
+        <p id="commission-iban-note" class="notice" hidden></p>
+        <button class="btn" type="submit">Kaydet</button>
+      </form>
+    </section>
     <section aria-labelledby="iller">
       <h2 id="iller">İller</h2>
-      <p class="section-note">81 il, alt alta. İle tıklayınca restoran ekleme sayfası açılır.</p>
+      <p class="section-note">81 il. İle tıklayınca o ilin sayfası açılır. Anahtar siparişi açar veya kapatır; kapalı il ana sayfada görünmez.</p>
       <div id="provinces" class="province-list"></div>
     </section>
     <section aria-labelledby="odeme">
       <h2 id="odeme">Ödeme yöntemleri</h2>
       <p class="section-note">Yalnızca açık olanlar müşteriye, sepette görünür.</p>
       <div id="gateways" class="province-list"></div>
+    </section>
+    <section class="sheet" aria-labelledby="kat-restoran">
+      <h2 id="kat-restoran">Restoran kategorileri</h2>
+      <form data-form="add-category" data-kind="restoran">
+        <label class="field">Kategori adı<input name="ad" required></label>
+        <p id="category-note-restoran" class="notice" hidden></p>
+        <button class="btn" type="submit">Ekle</button>
+      </form>
+      <div id="categories-restoran" class="category-list"></div>
+    </section>
+    <section class="sheet" aria-labelledby="kat-su">
+      <h2 id="kat-su">Su Kategorileri</h2>
+      <form data-form="add-category" data-kind="su">
+        <label class="field">Kategori adı<input name="ad" required></label>
+        <p id="category-note-su" class="notice" hidden></p>
+        <button class="btn" type="submit">Ekle</button>
+      </form>
+      <div id="categories-su" class="category-list"></div>
+    </section>
+    <section class="sheet" aria-labelledby="kat-market">
+      <h2 id="kat-market">Market Kategorileri</h2>
+      <form data-form="add-category" data-kind="market">
+        <label class="field">Kategori adı<input name="ad" required></label>
+        <p id="category-note-market" class="notice" hidden></p>
+        <button class="btn" type="submit">Ekle</button>
+      </form>
+      <div id="categories-market" class="category-list"></div>
     </section>
     <section aria-labelledby="restoranlar">
       <h2 id="restoranlar">Restoranlar</h2>
