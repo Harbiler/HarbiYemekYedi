@@ -337,7 +337,9 @@ function blankState() {
     orders: [],
     couriers: COURIERS.map(function (item) { return Object.assign({}, item); }),
     courierApplications: [],
-    courierAssign: { luleburgaz: "otomatik" },
+    courierAssign: { luleburgaz: "otomatik", "Kırklareli|Lüleburgaz": "otomatik" },
+    assignmentDefaults: { global: "restoran_secer", byCity: {} },
+    adminManualAssignmentCities: [{ province: "Kırklareli", district: "Lüleburgaz" }],
     courierTurn: 0,
     session: null,
     delivery: { address: "", floor: "", apartment: "" },
@@ -604,10 +606,9 @@ function normalize(data) {
     if (typeof item.password !== "string") item.password = "";
     if (typeof item.photo !== "string") item.photo = "";
   });
-  if (!next.courierAssign || typeof next.courierAssign !== "object") next.courierAssign = {};
-  if (next.courierAssign.luleburgaz !== "manuel" && next.courierAssign.luleburgaz !== "otomatik") {
-    next.courierAssign.luleburgaz = next.courierAssign.auto === false ? "manuel" : "otomatik";
-  }
+  next.courierAssign = migrateCourierAssign(next.courierAssign);
+  next.assignmentDefaults = normalizeAssignmentDefaults(next.assignmentDefaults);
+  next.adminManualAssignmentCities = normalizeAdminManualCities(next.adminManualAssignmentCities);
   if (typeof next.courierTurn !== "number") next.courierTurn = 0;
   if (!next.delivery || typeof next.delivery !== "object") next.delivery = { address: "", floor: "", apartment: "" };
   if (typeof next.delivery.address !== "string") next.delivery.address = "";
@@ -648,6 +649,7 @@ function normalize(data) {
     if (typeof restaurant.payoutSaved !== "boolean") restaurant.payoutSaved = false;
     if (typeof restaurant.district !== "string") restaurant.district = "";
     if (restaurant.deliveryMode !== "kendi" && restaurant.deliveryMode !== "harbi") restaurant.deliveryMode = "harbi";
+    if (restaurant.harbiAssignMode !== "manuel" && restaurant.harbiAssignMode !== "otomatik") restaurant.harbiAssignMode = "otomatik";
     if (typeof restaurant.photo !== "string" || !restaurant.photo) restaurant.photo = photoFor(restaurant);
     restaurant.menu.forEach(function (item) {
       if (!item || typeof item !== "object") return;
@@ -744,6 +746,8 @@ function normalizeShopList(list) {
     if (typeof shop.phone !== "string") shop.phone = "";
     if (typeof shop.photo !== "string") shop.photo = "";
     if (typeof shop.approved !== "boolean") shop.approved = true;
+    if (shop.deliveryMode !== "kendi" && shop.deliveryMode !== "harbi") shop.deliveryMode = "harbi";
+    if (shop.harbiAssignMode !== "manuel" && shop.harbiAssignMode !== "otomatik") shop.harbiAssignMode = "otomatik";
     if (typeof shop.id !== "string" || !shop.id) shop.id = uid("shop");
     if (!Array.isArray(shop.menu)) shop.menu = [];
     shop.menu.forEach(function (item) {
@@ -820,6 +824,23 @@ function deliveryLabel(mode) {
   return mode === "kendi" ? "Kendi Kuryemle" : "Harbi Kurye İle Teslimat";
 }
 
+function deliveryAndAssignPanelHtml(seller) {
+  const mode = deliveryModeOf(seller);
+  const harbiMode = sellerHarbiAssignMode(seller);
+  return '<section class="sheet"><h2>Teslimat</h2>'
+    + '<p class="section-note">Kurye kaynağı ve Harbi Kurye atama tercihi bu tarayıcıda kalır.</p>'
+    + '<div class="delivery-grid" role="radiogroup" aria-label="Teslimat kaynağı">'
+    + '<label class="gateway-row"><span>Kendi Kuryemle</span><input type="radio" name="deliveryMode" value="kendi"' + (mode === "kendi" ? " checked" : "") + "></label>"
+    + '<label class="gateway-row"><span>Harbi Kurye ile teslimat</span><input type="radio" name="deliveryMode" value="harbi"' + (mode === "harbi" ? " checked" : "") + "></label>"
+    + "</div>"
+    + '<div class="delivery-grid harbi-assign-block"' + (mode === "harbi" ? "" : " hidden") + ' role="radiogroup" aria-label="Harbi Kurye atama">'
+    + '<p class="section-note" style="margin:8px 0 4px">Harbi Kurye siparişlerinde kurye ataması:</p>'
+    + '<label class="gateway-row"><span>Otomatik atama</span><input type="radio" name="harbiAssignMode" value="otomatik"' + (harbiMode === "otomatik" ? " checked" : "") + "></label>"
+    + '<label class="gateway-row"><span>Manuel atama</span><input type="radio" name="harbiAssignMode" value="manuel"' + (harbiMode === "manuel" ? " checked" : "") + "></label>"
+    + "</div>"
+    + '<p id="delivery-note" class="notice" hidden></p></section>';
+}
+
 function statusText(order) {
   if (order && (order.status === "yeni" || order.status === "onayli" || order.status === "iptal")) return STATUS_TEXT[order.status];
   if (order && order.deliveryMode === "kendi") {
@@ -839,8 +860,104 @@ function couriersInCity(state, province) {
   });
 }
 
+function assignPlaceKey(province, district) {
+  return String(province || "").trim() + "|" + String(district || "").trim();
+}
+
+function placesMatch(a, b) {
+  return !!(a && b && a.province === b.province && a.district === b.district);
+}
+
+function normalizeAssignmentDefaults(raw) {
+  if (!raw || typeof raw !== "object") raw = {};
+  const global = raw.global === "otomatik" || raw.global === "manuel" ? raw.global : "restoran_secer";
+  const byCity = {};
+  if (raw.byCity && typeof raw.byCity === "object") {
+    Object.keys(raw.byCity).forEach(function (key) {
+      const policy = raw.byCity[key];
+      if (policy === "otomatik" || policy === "manuel" || policy === "restoran_secer") byCity[key] = policy;
+    });
+  }
+  return { global: global, byCity: byCity };
+}
+
+function normalizeAdminManualCities(list) {
+  if (!Array.isArray(list)) list = [];
+  const out = list.filter(function (item) {
+    return item && typeof item.province === "string" && typeof item.district === "string"
+      && item.province.trim() && item.district.trim();
+  }).map(function (item) {
+    return { province: item.province.trim(), district: item.district.trim() };
+  });
+  if (!out.some(function (item) { return placesMatch(item, { province: "Kırklareli", district: "Lüleburgaz" }); })) {
+    out.unshift({ province: "Kırklareli", district: "Lüleburgaz" });
+  }
+  return out;
+}
+
+function migrateCourierAssign(raw) {
+  const ca = raw && typeof raw === "object" ? raw : {};
+  const luleKey = assignPlaceKey("Kırklareli", "Lüleburgaz");
+  if (ca.luleburgaz !== "manuel" && ca.luleburgaz !== "otomatik") {
+    ca.luleburgaz = ca.auto === false ? "manuel" : "otomatik";
+  }
+  if (ca[luleKey] !== "manuel" && ca[luleKey] !== "otomatik") ca[luleKey] = ca.luleburgaz;
+  ca.luleburgaz = ca[luleKey] === "manuel" ? "manuel" : "otomatik";
+  return ca;
+}
+
+function platformAssignMode(state, place) {
+  if (!state.courierAssign) return "otomatik";
+  const key = assignPlaceKey(place.province, place.district);
+  let mode = state.courierAssign[key];
+  if (mode !== "manuel" && mode !== "otomatik" && place.province === "Kırklareli" && place.district === "Lüleburgaz") {
+    mode = state.courierAssign.luleburgaz;
+  }
+  return mode === "manuel" ? "manuel" : "otomatik";
+}
+
 function luleburgazMode(state) {
-  return state.courierAssign && state.courierAssign.luleburgaz === "manuel" ? "manuel" : "otomatik";
+  return platformAssignMode(state, { province: "Kırklareli", district: "Lüleburgaz" });
+}
+
+function isAdminManualAssignmentCity(state, place) {
+  return (state.adminManualAssignmentCities || []).some(function (item) { return placesMatch(item, place); });
+}
+
+function sellerHarbiAssignMode(seller) {
+  if (!seller) return "otomatik";
+  return seller.harbiAssignMode === "manuel" ? "manuel" : "otomatik";
+}
+
+function effectiveHarbiAssignMode(state, order) {
+  if (!order || order.deliveryMode === "kendi") return "otomatik";
+  const place = orderPlace(state, order);
+  if (isAdminManualAssignmentCity(state, place)) return platformAssignMode(state, place);
+  const seller = findRestaurant(state, order.restaurantId) || findShop(order.restaurantId);
+  const defaults = state.assignmentDefaults || { global: "restoran_secer", byCity: {} };
+  const cityKey = assignPlaceKey(place.province, place.district);
+  const cityPolicy = defaults.byCity && defaults.byCity[cityKey];
+  if (cityPolicy === "otomatik" || cityPolicy === "manuel") return cityPolicy;
+  if (cityPolicy === "restoran_secer" || (!cityPolicy && defaults.global === "restoran_secer")) {
+    return sellerHarbiAssignMode(seller);
+  }
+  return defaults.global === "manuel" ? "manuel" : "otomatik";
+}
+
+function assignmentPolicyLabel(policy) {
+  if (policy === "manuel") return "Manuel (Harbi Kurye)";
+  if (policy === "otomatik") return "Otomatik (Harbi Kurye)";
+  return "Restoran kendi seçer";
+}
+
+function courierServesPlace(courier, place) {
+  if (!courier || courier.approved === false) return false;
+  if (isLuleburgazPlace(place)) return courierServesLuleburgaz(courier);
+  const district = courier.district || matchDistrict(courier.province || "", courier.address || "");
+  if (district && place.district) {
+    return courier.province === place.province && district === place.district;
+  }
+  return courier.province === place.province;
 }
 
 function orderPlace(state, order) {
@@ -867,15 +984,19 @@ function courierIsPaused(courier, now) {
 
 function assignCourier(state, order) {
   const place = orderPlace(state, order);
-  const luleburgaz = isLuleburgazPlace(place);
-  if (luleburgaz && luleburgazMode(state) === "manuel") {
+  if (effectiveHarbiAssignMode(state, order) === "manuel") {
     order.courierId = null;
     order.status = "bekliyor";
     return null;
   }
-  const pool = luleburgaz
+  const pool = isLuleburgazPlace(place)
     ? state.couriers.filter(courierServesLuleburgaz)
-    : couriersInCity(state, place.province || order.province);
+    : state.couriers.filter(function (courier) { return courierServesPlace(courier, place); });
+  if (!pool.length && place.province) {
+    couriersInCity(state, place.province || order.province).forEach(function (courier) {
+      if (pool.indexOf(courier) === -1) pool.push(courier);
+    });
+  }
   const declined = {};
   (order.declinedBy || []).forEach(function (id) { declined[id] = true; });
   if (!pool.length) {
@@ -900,13 +1021,14 @@ function assignCourier(state, order) {
 }
 
 function assignCourierManual(state, orderId, courierId) {
-  if (luleburgazMode(state) !== "manuel") return null;
   const order = findOrder(state, orderId);
   const courier = findCourier(state, courierId);
   if (!order || !courier || order.deliveryMode === "kendi") return null;
-  if (!isLuleburgazPlace(orderPlace(state, order))) return null;
+  const place = orderPlace(state, order);
+  if (!isAdminManualAssignmentCity(state, place)) return null;
+  if (platformAssignMode(state, place) !== "manuel") return null;
   if (order.status !== "bekliyor" && order.status !== "atandi") return null;
-  if (courierIsPaused(courier) || !courierServesLuleburgaz(courier)) return null;
+  if (courierIsPaused(courier) || !courierServesPlace(courier, place)) return null;
   order.courierId = courier.id;
   order.status = "atandi";
   return courier;
@@ -1750,16 +1872,41 @@ function onClick(event) {
     button.setAttribute("aria-label", gatewayLabel(id) + (state.gateways[id] ? " açık" : " kapalı"));
     return;
   }
-  if (action === "toggle-luleburgaz-assign") {
+  if (action === "toggle-luleburgaz-assign" || action === "toggle-platform-assign") {
     if (!state.courierAssign) state.courierAssign = {};
-    state.courierAssign.luleburgaz = luleburgazMode(state) === "otomatik" ? "manuel" : "otomatik";
-    if (state.courierAssign.luleburgaz === "otomatik") {
+    const province = button.dataset.province || "Kırklareli";
+    const district = button.dataset.district || "Lüleburgaz";
+    const place = { province: province, district: district };
+    const key = assignPlaceKey(province, district);
+    const nextMode = platformAssignMode(state, place) === "otomatik" ? "manuel" : "otomatik";
+    state.courierAssign[key] = nextMode;
+    if (province === "Kırklareli" && district === "Lüleburgaz") state.courierAssign.luleburgaz = nextMode;
+    if (nextMode === "otomatik") {
       state.orders.forEach(function (order) {
         if (!order || order.deliveryMode === "kendi" || order.status !== "bekliyor") return;
-        if (!isLuleburgazPlace(orderPlace(state, order))) return;
+        if (!placesMatch(orderPlace(state, order), place)) return;
         assignCourier(state, order);
       });
     }
+    persist();
+    renderCourierPanels();
+    return;
+  }
+  if (action === "remove-admin-manual-city") {
+    const province = button.dataset.province || "";
+    const district = button.dataset.district || "";
+    if (province === "Kırklareli" && district === "Lüleburgaz") return;
+    state.adminManualAssignmentCities = (state.adminManualAssignmentCities || []).filter(function (item) {
+      return !(item.province === province && item.district === district);
+    });
+    persist();
+    renderCourierPanels();
+    return;
+  }
+  if (action === "remove-assignment-default-city") {
+    const key = button.dataset.key || "";
+    if (!state.assignmentDefaults || !state.assignmentDefaults.byCity) return;
+    delete state.assignmentDefaults.byCity[key];
     persist();
     renderCourierPanels();
     return;
@@ -2008,16 +2155,39 @@ function onClick(event) {
 function onChange(event) {
   const target = event.target;
   if (target instanceof HTMLInputElement && target.name === "deliveryMode") {
-    const restaurant = currentRestaurant();
+    const seller = currentSeller();
     const mode = target.value === "kendi" || target.value === "harbi" ? target.value : "";
-    if (!restaurant || !mode) return;
-    restaurant.deliveryMode = mode;
+    if (!seller || !mode) return;
+    seller.deliveryMode = mode;
     persist();
+    const block = document.querySelector(".harbi-assign-block");
+    if (block) block.hidden = mode !== "harbi";
     const noteNode = document.querySelector("#delivery-note");
     if (noteNode) {
       noteNode.hidden = false;
       noteNode.textContent = "Teslimat seçimi kaydedildi.";
     }
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.name === "harbiAssignMode") {
+    const seller = currentSeller();
+    const mode = target.value === "manuel" || target.value === "otomatik" ? target.value : "";
+    if (!seller || !mode) return;
+    seller.harbiAssignMode = mode;
+    persist();
+    const noteNode = document.querySelector("#delivery-note");
+    if (noteNode) {
+      noteNode.hidden = false;
+      noteNode.textContent = "Harbi Kurye atama tercihi kaydedildi.";
+    }
+    return;
+  }
+  if (target instanceof HTMLSelectElement && target.dataset.action === "set-assignment-global") {
+    if (!state.assignmentDefaults) state.assignmentDefaults = { global: "restoran_secer", byCity: {} };
+    const val = target.value;
+    state.assignmentDefaults.global = val === "otomatik" || val === "manuel" ? val : "restoran_secer";
+    persist();
+    renderCourierPanels();
     return;
   }
   if (!(target instanceof HTMLSelectElement) || !target.form) return;
@@ -2029,6 +2199,10 @@ function onChange(event) {
   if (target.name !== "il") return;
   if (formKind === "save-region") {
     paintRegionDistrictCheckboxes(target.form, target.value, []);
+    return;
+  }
+  if (formKind === "add-admin-manual-city" || formKind === "add-assignment-default-city") {
+    fillDistrictOptions(target.form.elements.ilce, target.value);
     return;
   }
   if (formKind !== "signup" && formKind !== "partner-apply" && formKind !== "courier-apply") return;
@@ -2078,6 +2252,41 @@ function onSubmit(event) {
   if (kind === "checkout") return submitCheckout(form);
   if (kind === "district-restaurant") return submitDistrictRestaurant(form);
   if (kind === "cart-checkout") return submitCartCheckout(form);
+  if (kind === "add-admin-manual-city") return submitAddAdminManualCity(form);
+  if (kind === "add-assignment-default-city") return submitAddAssignmentDefaultCity(form);
+}
+
+function submitAddAdminManualCity(form) {
+  const province = String(form.il.value || "").trim();
+  const district = String(form.ilce.value || "").trim();
+  if (!province || !district) return;
+  const exists = (state.adminManualAssignmentCities || []).some(function (item) {
+    return item.province === province && item.district === district;
+  });
+  if (!exists) {
+    state.adminManualAssignmentCities = (state.adminManualAssignmentCities || []).concat([{ province: province, district: district }]);
+  }
+  state.adminManualAssignmentCities = normalizeAdminManualCities(state.adminManualAssignmentCities);
+  if (!state.courierAssign) state.courierAssign = migrateCourierAssign({});
+  const key = assignPlaceKey(province, district);
+  if (state.courierAssign[key] !== "manuel" && state.courierAssign[key] !== "otomatik") {
+    state.courierAssign[key] = "otomatik";
+  }
+  persist();
+  renderCourierPanels();
+}
+
+function submitAddAssignmentDefaultCity(form) {
+  const province = String(form.il.value || "").trim();
+  const district = String(form.ilce.value || "").trim();
+  const policy = String(form.politika.value || "").trim();
+  if (!province || !district) return;
+  if (!state.assignmentDefaults) state.assignmentDefaults = normalizeAssignmentDefaults(null);
+  if (!state.assignmentDefaults.byCity) state.assignmentDefaults.byCity = {};
+  const key = assignPlaceKey(province, district);
+  state.assignmentDefaults.byCity[key] = policy === "otomatik" || policy === "manuel" ? policy : "restoran_secer";
+  persist();
+  renderCourierPanels();
 }
 
 function note(id, text, ok) {
@@ -4372,6 +4581,7 @@ function renderShopOwner(shop) {
     payoutPainted = true;
     root.innerHTML = "<h1>" + esc(shop.name) + "</h1>"
       + ibanSheet(shop.iban)
+      + deliveryAndAssignPanelHtml(shop)
       + '<section class="sheet"><h2>Ürün ekle</h2>'
       + productFormHtml()
       + '<div id="menu-list" style="margin-top:16px"></div></section>';
@@ -4401,7 +4611,6 @@ function renderRestaurant() {
       ? '<p class="admin-entry"><a href="ilce.html?il=' + encodeURIComponent(restaurant.province) + "&ilce=" + encodeURIComponent(district) + '">İlçeye dön</a></p>'
       : '<p class="admin-entry"><a href="il.html?il=' + encodeURIComponent(restaurant.province) + '">İle dön</a></p>';
     const eyebrow = admin ? '<p class="eyebrow">' + esc(restaurant.province) + "</p>" : "";
-    const mode = deliveryModeOf(restaurant);
     root.innerHTML = back + eyebrow + "<h1>" + esc(restaurant.name) + "</h1>"
       + '<p style="margin:0 0 22px"><span class="commission">' + esc(commissionText()) + "</span></p>"
       + ibanSheet(restaurant.payoutIban || restaurant.iban)
@@ -4409,12 +4618,7 @@ function renderRestaurant() {
       + '<div class="ops-stack">'
       + '<section class="sheet"><h2>Kazanç</h2><p class="section-note">Günlük, haftalık ve aylık.</p>'
       + '<button class="btn" type="button" data-action="open-earnings">Kazancı aç</button></section>'
-      + '<section class="sheet"><h2>Teslimat</h2>'
-      + '<p class="section-note">Siparişler bu seçimle gider. Seçim bu tarayıcıda kalır.</p>'
-      + '<div class="delivery-grid" role="radiogroup" aria-label="Teslimat">'
-      + '<label class="gateway-row"><span>Kendi Kuryemle</span><input type="radio" name="deliveryMode" value="kendi"' + (mode === "kendi" ? " checked" : "") + "></label>"
-      + '<label class="gateway-row"><span>Harbi Kurye İle Teslimat</span><input type="radio" name="deliveryMode" value="harbi"' + (mode === "harbi" ? " checked" : "") + "></label>"
-      + '</div><p id="delivery-note" class="notice" hidden></p></section>'
+      + deliveryAndAssignPanelHtml(restaurant)
       + "</div>"
       + '<section class="sheet"><h2>Gelen siparişler</h2><div id="restaurant-orders"></div></section>'
       + '<section class="sheet"><h2>İptal edilenler</h2><div id="restaurant-cancelled"></div></section>'
@@ -4543,13 +4747,105 @@ function courierEditForm(courier) {
     + '<button class="btn" type="submit">Kaydet</button></form>';
 }
 
+function policySelectOptions(selected) {
+  return [
+    { value: "restoran_secer", label: "Restoran kendi seçer" },
+    { value: "otomatik", label: "Otomatik (Harbi Kurye)" },
+    { value: "manuel", label: "Manuel (Harbi Kurye)" }
+  ].map(function (item) {
+    return '<option value="' + item.value + '"' + (selected === item.value ? " selected" : "") + ">" + item.label + "</option>";
+  }).join("");
+}
+
+function manualAssignOrdersForPlace(place) {
+  if (platformAssignMode(state, place) !== "manuel") return "";
+  const openOrders = state.orders.filter(function (order) {
+    return order.deliveryMode !== "kendi" && (order.status === "bekliyor" || order.status === "atandi")
+      && placesMatch(orderPlace(state, order), place);
+  });
+  const pool = state.couriers.filter(function (courier) { return courierServesPlace(courier, place); });
+  if (!openOrders.length) return '<p class="empty">Atanacak sipariş yok.</p>';
+  return openOrders.map(function (order) {
+    const choices = pool.length
+      ? '<label class="field">Kurye<select>' + pool.map(function (courier) {
+        return '<option value="' + esc(courier.id) + '"' + (courier.id === order.courierId ? " selected" : "") + ">" + esc(courier.name) + "</option>";
+      }).join("") + "</select></label>"
+      + '<button class="btn" type="button" data-action="manual-assign" data-id="' + esc(order.id) + '">Ata</button>'
+      : '<p class="meta">Bu ilçede onaylı kurye yok.</p>';
+    return '<article class="order" data-order="' + esc(order.id) + '"><h3>' + esc(order.restaurantName) + "</h3>"
+      + '<p class="meta">' + esc(place.district) + " · " + esc(statusText(order)) + "</p>"
+      + choices + "</article>";
+  }).join("");
+}
+
+function buildAssignmentAdminHtml() {
+  const defaults = state.assignmentDefaults || normalizeAssignmentDefaults(null);
+  const cityDefaults = defaults.byCity || {};
+  const defaultRows = Object.keys(cityDefaults).length
+    ? Object.keys(cityDefaults).map(function (key) {
+      const sep = key.indexOf("|");
+      const province = sep >= 0 ? key.slice(0, sep) : key;
+      const district = sep >= 0 ? key.slice(sep + 1) : "";
+      return '<div class="province-row"><span>' + esc(province) + " / " + esc(district) + " · " + esc(assignmentPolicyLabel(cityDefaults[key])) + "</span>"
+        + '<button type="button" class="btn ghost" data-action="remove-assignment-default-city" data-key="' + esc(key) + '">Kaldır</button></div>';
+    }).join("")
+    : '<p class="empty">İlçe varsayılanı yok.</p>';
+  const manualCities = state.adminManualAssignmentCities || [];
+  const manualBlocks = manualCities.map(function (item) {
+    const place = { province: item.province, district: item.district };
+    const mode = platformAssignMode(state, place);
+    const isLule = item.province === "Kırklareli" && item.district === "Lüleburgaz";
+    const toggleAction = isLule ? "toggle-luleburgaz-assign" : "toggle-platform-assign";
+    const toggleLabel = isLule
+      ? "Lüleburgaz: " + (mode === "manuel" ? "Manuel" : "Otomatik")
+      : esc(item.district) + ": " + (mode === "manuel" ? "Manuel" : "Otomatik");
+    return '<div class="assignment-city-block">'
+      + '<div class="province-row"><span>' + esc(item.province) + " / " + esc(item.district) + "</span>"
+      + '<button type="button" class="btn" data-action="' + toggleAction + '" data-province="' + esc(item.province) + '" data-district="' + esc(item.district) + '" aria-pressed="' + (mode === "otomatik" ? "true" : "false") + '">'
+      + toggleLabel + "</button>"
+      + (!isLule ? '<button type="button" class="btn ghost" data-action="remove-admin-manual-city" data-province="' + esc(item.province) + '" data-district="' + esc(item.district) + '">Listeden çıkar</button>' : "")
+      + "</div>"
+      + '<p class="section-note">Tıklayınca otomatik, tekrar tıklayınca manuel.</p>'
+      + manualAssignOrdersForPlace(place)
+      + "</div>";
+  }).join("");
+  return '<section class="sheet assignment-admin"><h3 class="admin-subhead">Sipariş / kurye atama</h3>'
+    + '<div class="admin-accordion assignment-nested">'
+    + '<h4 class="admin-subhead-sm"><button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-assign-genel">Genel atama</button></h4>'
+    + '<div id="admin-assign-genel" class="admin-accordion-panel" hidden>'
+    + '<p class="section-note">Tüm şehirler için varsayılan politika. &quot;Restoran kendi seçer&quot; seçiliyken işletme panelinde otomatik / manuel değiştirilebilir.</p>'
+    + '<label class="field">Varsayılan<select data-action="set-assignment-global">' + policySelectOptions(defaults.global) + "</select></label>"
+    + '<h4 class="admin-subhead-sm">İl / ilçe varsayılanları</h4>'
+    + '<form data-form="add-assignment-default-city" class="assignment-inline-form">'
+    + '<label class="field">İl<select name="il" required>' + provinceSelectHtml() + "</select></label>"
+    + '<label class="field">İlçe<select name="ilce" required><option value="">İlçe seçin</option></select></label>'
+    + '<label class="field">Politika<select name="politika">' + policySelectOptions("restoran_secer") + "</select></label>"
+    + '<button class="btn" type="submit">Ekle</button></form>'
+    + defaultRows
+    + "</div></div>"
+    + '<div class="admin-accordion assignment-nested">'
+    + '<h4 class="admin-subhead-sm"><button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-assign-manuel">Manuel atama (admin)</button></h4>'
+    + '<div id="admin-assign-manuel" class="admin-accordion-panel" hidden>'
+    + '<p class="section-note">Bu listedeki ilçelerde platform atamasını yönetin. Başlangıç: Kırklareli / Lüleburgaz.</p>'
+    + '<form data-form="add-admin-manual-city" class="assignment-inline-form">'
+    + '<label class="field">İl<select name="il" required>' + provinceSelectHtml() + "</select></label>"
+    + '<label class="field">İlçe<select name="ilce" required><option value="">İlçe seçin</option></select></label>'
+    + '<button class="btn" type="submit">Şehir ekle</button></form>'
+    + manualBlocks
+    + "</div></div></section>";
+}
+
+function wireAssignmentForms() {
+  document.querySelectorAll('[data-form="add-admin-manual-city"], [data-form="add-assignment-default-city"]').forEach(function (form) {
+    const il = form.elements.il;
+    const ilce = form.elements.ilce;
+    if (il && ilce) fillDistrictOptions(ilce, il.value || "");
+  });
+}
+
 function buildCourierManagementHtml() {
-  const mode = luleburgazMode(state);
   const pending = (state.courierApplications || []).filter(function (item) { return item.status !== "onayli"; });
   const approved = (state.couriers || []).filter(function (courier) { return courier.approved !== false; });
-  const openOrders = state.orders.filter(function (order) {
-    return order.deliveryMode !== "kendi" && (order.status === "bekliyor" || order.status === "atandi") && isLuleburgazPlace(orderPlace(state, order));
-  });
   const applications = pending.length
     ? pending.map(function (item) {
       const photo = item.photo ? '<img class="item-photo" src="' + esc(item.photo) + '" alt="">' : "";
@@ -4579,27 +4875,7 @@ function buildCourierManagementHtml() {
         + "</div>";
     }).join("")
     : '<p class="empty">Onaylı kurye yok.</p>';
-  const lulePool = state.couriers.filter(courierServesLuleburgaz);
-  let manualHtml = "";
-  if (mode === "manuel") {
-    manualHtml = openOrders.length
-      ? openOrders.map(function (order) {
-        const choices = lulePool.length
-          ? '<label class="field">Kurye<select>' + lulePool.map(function (courier) {
-            return '<option value="' + esc(courier.id) + '"' + (courier.id === order.courierId ? " selected" : "") + ">" + esc(courier.name) + "</option>";
-          }).join("") + "</select></label>"
-          + '<button class="btn" type="button" data-action="manual-assign" data-id="' + esc(order.id) + '">Ata</button>'
-          : '<p class="meta">Lüleburgaz’da onaylı kurye yok.</p>';
-        return '<article class="order" data-order="' + esc(order.id) + '"><h3>' + esc(order.restaurantName) + "</h3>"
-          + '<p class="meta">Lüleburgaz · ' + esc(statusText(order)) + "</p>"
-          + choices + "</article>";
-      }).join("")
-      : '<p class="empty">Atanacak Lüleburgaz siparişi yok.</p>';
-  }
-  return '<section class="sheet"><h3 class="admin-subhead">Sipariş atama</h3>'
-    + '<p class="section-note">Yalnızca Lüleburgaz. Tıklayınca otomatik, tekrar tıklayınca manuel.</p>'
-    + '<button type="button" class="btn" data-action="toggle-luleburgaz-assign" aria-pressed="' + (mode === "otomatik" ? "true" : "false") + '">Lüleburgaz: ' + (mode === "manuel" ? "Manuel" : "Otomatik") + "</button>"
-    + manualHtml + "</section>"
+  return buildAssignmentAdminHtml()
     + '<section class="sheet"><h3 class="admin-subhead">Kurye ekle</h3>'
     + '<p class="section-note">İsim, soyisim, telefon, adres, e-posta, resim, TC, ikametgah belgesi ve sabıka kaydı zorunlu. Biri boşsa kaydedilmez. Kayıt ve belgeler bu tarayıcıda kalır. Adresin sonuna ili yazın; kurye yalnız o şehirdeki siparişi alır. Giriş için kurye bilgileri düzenlemeden şifre tanımlayın.</p>'
     + '<p id="add-courier-note" class="notice" hidden></p>'
@@ -4621,6 +4897,7 @@ function buildCourierManagementHtml() {
 function renderCourierPanels() {
   renderCourierAdmin();
   renderAdminCouriers();
+  wireAssignmentForms();
 }
 
 function renderAdminCouriers() {

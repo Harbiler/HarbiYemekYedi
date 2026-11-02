@@ -464,6 +464,25 @@ a { color: inherit; }
 
 .admin-accordion { margin-bottom: 16px; }
 .admin-accordion > h2 { margin: 0; }
+.assignment-nested { margin: 12px 0 0; padding: 0; border: 0; }
+.assignment-nested > h4 { margin: 0 0 8px; }
+.assignment-inline-form {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.assignment-city-block {
+  margin: 0 0 18px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.assignment-city-block:last-child { border-bottom: 0; }
+@media (min-width: 640px) {
+  .assignment-inline-form {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    align-items: end;
+  }
+}
 .admin-subhead {
   margin: 20px 0 8px;
   font-size: 1.05rem;
