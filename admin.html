@@ -25,6 +25,7 @@
   <main class="wrap" id="admin-app">
     <h1>Yönetim</h1>
     <p class="section-note">Ayarlar bu tarayıcıda saklanır. Bölümleri tıklayarak açın.</p>
+    <p id="admin-role-note" class="notice" hidden></p>
 
     <section class="sheet admin-accordion" aria-labelledby="acc-iller">
       <h2 id="acc-iller">
@@ -36,6 +37,57 @@
         <h3 class="admin-subhead">Ödeme yöntemleri</h3>
         <p class="section-note">Yalnızca açık olanlar müşteriye, sepette görünür.</p>
         <div id="gateways" class="province-list"></div>
+      </div>
+    </section>
+
+    <section class="sheet admin-accordion" aria-labelledby="acc-bolgeler">
+      <h2 id="acc-bolgeler">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-panel-bolgeler">Bölgeler</button>
+      </h2>
+      <div id="admin-panel-bolgeler" class="admin-accordion-panel" hidden>
+        <p class="section-note">Teslimat bölgeleri: bölge adı, il ve bağlı ilçeler. Müşteri adresi bu ilçelerle eşleşince bölge raporlanabilir.</p>
+        <form data-form="save-region" id="region-form">
+          <input type="hidden" name="bolgeId" value="">
+          <label class="field">Bölge adı<input name="ad" required></label>
+          <label class="field">İl<select name="il" required></select></label>
+          <fieldset class="region-district-field">
+            <legend>Bağlı ilçeler</legend>
+            <p class="section-note" style="margin:0 0 10px">En az bir ilçe seçin.</p>
+            <div id="region-district-pick" class="region-district-grid"></div>
+          </fieldset>
+          <p id="region-form-note" class="notice" hidden></p>
+          <div class="actions">
+            <button class="btn" type="submit">Kaydet</button>
+            <button class="btn ghost" type="button" data-action="cancel-region-edit" hidden>İptal</button>
+          </div>
+        </form>
+        <h3 class="admin-subhead">Kayıtlı bölgeler</h3>
+        <div id="admin-regions"></div>
+      </div>
+    </section>
+
+    <section class="sheet admin-accordion" id="admin-section-sorumlular" aria-labelledby="acc-sorumlular">
+      <h2 id="acc-sorumlular">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-panel-sorumlular">Sorumlular</button>
+      </h2>
+      <div id="admin-panel-sorumlular" class="admin-accordion-panel" hidden>
+        <p class="section-note">Sorumlu kullanıcılar yönetim paneline giriş yapabilir; düzenleme yapar, silme yapamaz.</p>
+        <form data-form="save-supervisor" id="supervisor-form">
+          <input type="hidden" name="sorumluId" value="">
+          <label class="field">İsim<input name="isim" required autocomplete="given-name"></label>
+          <label class="field">Soy isim<input name="soyisim" required autocomplete="family-name"></label>
+          <label class="field">Telefon<input name="telefon" type="tel" required autocomplete="tel"></label>
+          <label class="field">Adres<textarea name="adres" rows="3" required autocomplete="street-address"></textarea></label>
+          <label class="field">E-posta<input name="eposta" type="email" required autocomplete="username"></label>
+          <label class="field">Şifre<input name="sifre" type="password" autocomplete="new-password" required></label>
+          <p id="supervisor-form-note" class="notice" hidden></p>
+          <div class="actions">
+            <button class="btn" type="submit">Kaydet</button>
+            <button class="btn ghost" type="button" data-action="cancel-supervisor-edit" hidden>İptal</button>
+          </div>
+        </form>
+        <h3 class="admin-subhead">Sorumlu listesi</h3>
+        <div id="admin-supervisors"></div>
       </div>
     </section>
 

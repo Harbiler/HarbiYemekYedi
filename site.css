@@ -483,6 +483,31 @@ a { color: inherit; }
 #admin-app .province-row { flex-wrap: wrap; align-items: flex-start; }
 #admin-app .courier-edit { flex: 1 0 100%; min-width: 0; }
 
+.region-district-field {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.region-district-field legend {
+  padding: 0 6px;
+  font-weight: 750;
+}
+.region-district-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
+}
+.region-district-grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.admin-supervisor-card .meta { word-break: break-word; }
+#admin-app .admin-supervisor-card .actions { flex-wrap: wrap; }
+
 .lanes {
   display: flex;
   flex-wrap: wrap;

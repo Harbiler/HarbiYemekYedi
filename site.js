@@ -350,7 +350,9 @@ function blankState() {
     florists: [],
     catalogCategories: { restoran: [], su: [], market: [], cicekci: [] },
     restaurantApplications: [],
-    floristApplications: []
+    floristApplications: [],
+    regions: [],
+    supervisors: []
   };
 }
 
@@ -661,7 +663,45 @@ function normalize(data) {
   next.markets = normalizeShopList(next.markets);
   next.florists = normalizeShopList(next.florists);
   next.catalogCategories = normalizeCatalogCategories(next.catalogCategories);
+  next.regions = normalizeRegionList(next.regions);
+  next.supervisors = normalizeSupervisorList(next.supervisors);
   return next;
+}
+
+function normalizeRegionList(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter(function (item) {
+    if (!item || typeof item !== "object") return false;
+    const name = String(item.name || "").trim();
+    const province = String(item.province || "").trim();
+    if (!name || PROVINCES.indexOf(province) === -1) return false;
+    item.name = name;
+    item.province = province;
+    if (typeof item.id !== "string" || !item.id) item.id = uid("bolge");
+    if (!Array.isArray(item.districts)) item.districts = [];
+    item.districts = item.districts.filter(function (district) {
+      return typeof district === "string" && districtsOf(province).indexOf(district) !== -1;
+    });
+    return item.districts.length > 0;
+  });
+}
+
+function normalizeSupervisorList(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter(function (item) {
+    if (!item || typeof item !== "object") return false;
+    item.firstName = String(item.firstName || item.isim || "").trim();
+    item.lastName = String(item.lastName || item.soyisim || "").trim();
+    item.phone = String(item.phone || item.telefon || "").trim();
+    item.address = String(item.address || item.adres || "").trim();
+    item.email = normalizeEmail(item.email || item.eposta || "");
+    item.password = String(item.password || item.sifre || "");
+    if (!item.firstName || !item.lastName || !item.phone || !item.address || !item.email || !item.password) {
+      return false;
+    }
+    if (typeof item.id !== "string" || !item.id) item.id = uid("sorumlu");
+    return true;
+  });
 }
 
 function normalizeCatalogCategories(bag) {
@@ -1203,7 +1243,7 @@ function sessionRole() {
 
 function accountHome() {
   const role = sessionRole();
-  if (role === "yonetim") return "admin.html";
+  if (role === "yonetim" || role === "sorumlu") return "admin.html";
   if (role === "kurye-yonetim" || role === "kurye") return role === "kurye" ? "kurye.html" : "kurye-yonetim.html";
   if (role === "restoran" || role === "su" || role === "market" || role === "cicekci") return "restoran.html";
   if (role === "musteri") return "siparisler.html";
@@ -1725,11 +1765,55 @@ function onClick(event) {
     return;
   }
   if (action === "delete-courier") {
+    if (!canAdminDelete()) return;
     const id = button.dataset.id;
     if (courierEditId === id) courierEditId = "";
     state.couriers = (state.couriers || []).filter(function (courier) { return courier && courier.id !== id; });
     persist();
     renderCourierPanels();
+    return;
+  }
+  if (action === "delete-region") {
+    if (!canAdminDelete()) return;
+    const regionId = button.dataset.id;
+    state.regions = (state.regions || []).filter(function (item) { return item && item.id !== regionId; });
+    if (regionEditId === regionId) resetRegionForm();
+    persist();
+    renderAdminRegions();
+    return;
+  }
+  if (action === "edit-region") {
+    const regionId = button.dataset.id;
+    const region = (state.regions || []).filter(function (item) { return item && item.id === regionId; })[0];
+    if (!region) return;
+    regionEditId = region.id;
+    fillRegionForm(region);
+    return;
+  }
+  if (action === "cancel-region-edit") {
+    resetRegionForm();
+    return;
+  }
+  if (action === "delete-supervisor") {
+    if (!isFullAdmin()) return;
+    const supervisorId = button.dataset.id;
+    state.supervisors = (state.supervisors || []).filter(function (item) { return item && item.id !== supervisorId; });
+    if (supervisorEditId === supervisorId) resetSupervisorForm();
+    persist();
+    renderAdminSupervisors();
+    return;
+  }
+  if (action === "edit-supervisor") {
+    if (!isFullAdmin()) return;
+    const supervisorId = button.dataset.id;
+    const person = (state.supervisors || []).filter(function (item) { return item && item.id === supervisorId; })[0];
+    if (!person) return;
+    supervisorEditId = person.id;
+    fillSupervisorForm(person);
+    return;
+  }
+  if (action === "cancel-supervisor-edit") {
+    resetSupervisorForm();
     return;
   }
   if (action === "edit-courier") {
@@ -1790,6 +1874,7 @@ function onClick(event) {
     return;
   }
   if (action === "delete-restaurant") {
+    if (!canAdminDelete()) return;
     const id = button.dataset.id;
     state.restaurants = state.restaurants.filter(function (restaurant) { return restaurant.id !== id; });
     state.cart = (state.cart || []).filter(function (line) { return line.restaurantId !== id; });
@@ -1819,6 +1904,7 @@ function onClick(event) {
     return;
   }
   if (action === "remove-extra") {
+    if (sessionRole() === "sorumlu") return;
     const restaurant = currentRestaurant();
     if (!restaurant) return;
     restaurant.extras = restaurant.extras.filter(function (extra) { return extra.id !== button.dataset.id; });
@@ -1827,6 +1913,7 @@ function onClick(event) {
     return;
   }
   if (action === "remove-category") {
+    if (!canAdminDelete()) return;
     const kind = button.dataset.kind;
     const list = categoriesOf(kind);
     if (!list) return;
@@ -1836,6 +1923,7 @@ function onClick(event) {
     return;
   }
   if (action === "remove-menu-item") {
+    if (sessionRole() === "sorumlu") return;
     const seller = currentSeller();
     if (!seller) return;
     seller.menu = seller.menu.filter(function (item) { return item.id !== button.dataset.id; });
@@ -1939,6 +2027,10 @@ function onChange(event) {
     return;
   }
   if (target.name !== "il") return;
+  if (formKind === "save-region") {
+    paintRegionDistrictCheckboxes(target.form, target.value, []);
+    return;
+  }
   if (formKind !== "signup" && formKind !== "partner-apply" && formKind !== "courier-apply") return;
   fillDistrictOptions(target.form.elements.ilce, target.value);
 }
@@ -1977,6 +2069,8 @@ function onSubmit(event) {
   if (kind === "add-extra") return submitExtra(form);
   if (kind === "add-menu-item") return submitMenuItem(form);
   if (kind === "add-category") return submitCategory(form);
+  if (kind === "save-region") return submitRegion(form);
+  if (kind === "save-supervisor") return submitSupervisor(form);
   if (kind === "save-payout") return submitPayout(form);
   if (kind === "save-seller-iban") return submitSellerIban(form);
   if (kind === "save-courier-iban") return submitCourierIban(form);
@@ -2047,13 +2141,35 @@ function writeAdminSession(email) {
 }
 
 function hasAdminSession() {
-  if (state && state.session && state.session.role === "yonetim") return true;
+  if (state && state.session && (state.session.role === "yonetim" || state.session.role === "sorumlu")) {
+    return true;
+  }
   const stored = readStoredSession();
-  if (stored && stored.role === "yonetim") {
+  if (stored && (stored.role === "yonetim" || stored.role === "sorumlu")) {
     state.session = stored;
     return true;
   }
   return false;
+}
+
+function isFullAdmin() {
+  if (state && state.session && state.session.role === "yonetim") return true;
+  const stored = readStoredSession();
+  return !!(stored && stored.role === "yonetim");
+}
+
+function canAdminDelete() {
+  return isFullAdmin();
+}
+
+function adminDeleteButton(action, attrs, label) {
+  if (!canAdminDelete()) return "";
+  return '<button class="btn ghost" type="button" data-action="' + esc(action) + '" ' + attrs + ">" + esc(label) + "</button>";
+}
+
+function ownerDeleteButton(action, attrs, label) {
+  if (sessionRole() === "sorumlu") return "";
+  return '<button class="btn ghost" type="button" data-action="' + esc(action) + '" ' + attrs + ">" + esc(label) + "</button>";
 }
 
 function submitSignup(form) {
@@ -2103,6 +2219,20 @@ function submitCustomer(form) {
   const password = String(passwordEl ? passwordEl.value : "").trim();
   if (email === "admin@harbiyemek7.com" && password.toLowerCase() === "harbi7") {
     state.session = { role: "yonetim", name: "admin", email: email };
+    persist();
+    location.href = "admin.html";
+    return;
+  }
+  const supervisorAccount = (state.supervisors || []).filter(function (item) {
+    return item && normalizeEmail(item.email) === email && item.password === password;
+  })[0];
+  if (supervisorAccount) {
+    state.session = {
+      role: "sorumlu",
+      supervisorId: supervisorAccount.id,
+      name: (supervisorAccount.firstName + " " + supervisorAccount.lastName).trim(),
+      email: email
+    };
     persist();
     location.href = "admin.html";
     return;
@@ -2900,10 +3030,237 @@ function renderCategoryLists() {
     root.innerHTML = list.length
       ? list.map(function (item) {
         return '<div class="province-row"><span>' + esc(item.name) + "</span>"
-          + '<button class="btn ghost" type="button" data-action="remove-category" data-kind="' + esc(kind) + '" data-id="' + esc(item.id) + '">Sil</button></div>';
+          + adminDeleteButton("remove-category", 'data-kind="' + esc(kind) + '" data-id="' + esc(item.id) + '"', "Sil") + "</div>";
       }).join("")
       : '<p class="empty">Henüz kategori yok.</p>';
   });
+}
+
+var regionEditId = "";
+var supervisorEditId = "";
+
+function regionSelectedDistricts(form) {
+  if (!form) return [];
+  return Array.prototype.slice.call(form.querySelectorAll('input[name="ilce"]:checked')).map(function (box) {
+    return box.value;
+  });
+}
+
+function paintRegionDistrictCheckboxes(form, province, selected) {
+  const root = form ? form.querySelector("#region-district-pick") : document.querySelector("#region-district-pick");
+  if (!root) return;
+  const picked = {};
+  (selected || []).forEach(function (name) { picked[name] = true; });
+  const names = districtsOf(province);
+  if (!names.length) {
+    root.innerHTML = '<p class="empty">Önce il seçin.</p>';
+    return;
+  }
+  root.innerHTML = names.map(function (district) {
+    const checked = picked[district] ? " checked" : "";
+    return '<label><input type="checkbox" name="ilce" value="' + esc(district) + '"' + checked + "> " + esc(district) + "</label>";
+  }).join("");
+}
+
+function fillRegionForm(region) {
+  const form = document.querySelector('[data-form="save-region"]');
+  if (!form || !region) return;
+  regionEditId = region.id;
+  if (form.bolgeId) form.bolgeId.value = region.id;
+  if (form.ad) form.ad.value = region.name;
+  if (form.il) {
+    if (!form.il.dataset.ready) {
+      form.il.innerHTML = provinceSelectHtml();
+      form.il.dataset.ready = "1";
+    }
+    form.il.value = region.province;
+  }
+  paintRegionDistrictCheckboxes(form, region.province, region.districts || []);
+  const cancel = form.querySelector('[data-action="cancel-region-edit"]');
+  if (cancel) cancel.hidden = false;
+  note("#region-form-note", "Düzenleme modu.", true);
+}
+
+function resetRegionForm() {
+  regionEditId = "";
+  const form = document.querySelector('[data-form="save-region"]');
+  if (!form) return;
+  form.reset();
+  if (form.bolgeId) form.bolgeId.value = "";
+  paintRegionDistrictCheckboxes(form, form.il ? form.il.value : "", []);
+  const cancel = form.querySelector('[data-action="cancel-region-edit"]');
+  if (cancel) cancel.hidden = true;
+  const noteNode = document.querySelector("#region-form-note");
+  if (noteNode) noteNode.hidden = true;
+}
+
+function submitRegion(form) {
+  if (!hasAdminSession()) return;
+  const name = form.ad.value.trim();
+  const province = form.il ? form.il.value : "";
+  const districts = regionSelectedDistricts(form);
+  if (!name || PROVINCES.indexOf(province) === -1) {
+    note("#region-form-note", "Bölge adı ve il gerekli.", false);
+    return;
+  }
+  if (!districts.length) {
+    note("#region-form-note", "En az bir ilçe seçin.", false);
+    return;
+  }
+  const editId = regionEditId || (form.bolgeId ? form.bolgeId.value : "");
+  const duplicate = (state.regions || []).some(function (item) {
+    return item && item.id !== editId && item.name.toLocaleLowerCase("tr") === name.toLocaleLowerCase("tr");
+  });
+  if (duplicate) {
+    note("#region-form-note", "Bu bölge adı zaten var.", false);
+    return;
+  }
+  if (editId) {
+    const region = (state.regions || []).filter(function (item) { return item && item.id === editId; })[0];
+    if (!region) {
+      note("#region-form-note", "Bölge bulunamadı.", false);
+      return;
+    }
+    region.name = name;
+    region.province = province;
+    region.districts = districts.slice();
+  } else {
+    state.regions.push({ id: uid("bolge"), name: name, province: province, districts: districts.slice() });
+  }
+  persist();
+  resetRegionForm();
+  note("#region-form-note", "Bölge kaydedildi.", true);
+  renderAdminRegions();
+}
+
+function renderAdminRegions() {
+  const form = document.querySelector('[data-form="save-region"]');
+  if (form && form.il && !form.il.dataset.ready) {
+    form.il.innerHTML = provinceSelectHtml();
+    form.il.dataset.ready = "1";
+    paintRegionDistrictCheckboxes(form, "", []);
+  }
+  const root = document.querySelector("#admin-regions");
+  if (!root) return;
+  const list = state.regions || [];
+  if (!list.length) {
+    root.innerHTML = '<p class="empty">Henüz bölge yok.</p>';
+    return;
+  }
+  root.innerHTML = list.map(function (region) {
+    const districts = (region.districts || []).join(", ");
+    return '<article class="order admin-supervisor-card"><h3>' + esc(region.name) + "</h3>"
+      + '<p class="meta">' + esc(region.province) + "</p>"
+      + '<p class="meta">İlçeler: ' + esc(districts) + "</p>"
+      + '<div class="actions"><button class="btn ghost" type="button" data-action="edit-region" data-id="' + esc(region.id) + '">Düzenle</button>'
+      + adminDeleteButton("delete-region", 'data-id="' + esc(region.id) + '"', "Sil") + "</div></article>";
+  }).join("");
+}
+
+function fillSupervisorForm(person) {
+  const form = document.querySelector('[data-form="save-supervisor"]');
+  if (!form || !person) return;
+  supervisorEditId = person.id;
+  if (form.sorumluId) form.sorumluId.value = person.id;
+  if (form.isim) form.isim.value = person.firstName;
+  if (form.soyisim) form.soyisim.value = person.lastName;
+  if (form.telefon) form.telefon.value = person.phone;
+  if (form.adres) form.adres.value = person.address;
+  if (form.eposta) form.eposta.value = person.email;
+  if (form.sifre) {
+    form.sifre.value = person.password;
+    form.sifre.required = true;
+  }
+  const cancel = form.querySelector('[data-action="cancel-supervisor-edit"]');
+  if (cancel) cancel.hidden = false;
+  note("#supervisor-form-note", "Düzenleme modu.", true);
+}
+
+function resetSupervisorForm() {
+  supervisorEditId = "";
+  const form = document.querySelector('[data-form="save-supervisor"]');
+  if (!form) return;
+  form.reset();
+  if (form.sorumluId) form.sorumluId.value = "";
+  if (form.sifre) form.sifre.required = true;
+  const cancel = form.querySelector('[data-action="cancel-supervisor-edit"]');
+  if (cancel) cancel.hidden = true;
+  const noteNode = document.querySelector("#supervisor-form-note");
+  if (noteNode) noteNode.hidden = true;
+}
+
+function submitSupervisor(form) {
+  if (!isFullAdmin()) {
+    note("#supervisor-form-note", "Yalnızca yönetici sorumlu ekleyebilir.", false);
+    return;
+  }
+  const firstName = form.isim.value.trim();
+  const lastName = form.soyisim.value.trim();
+  const phone = form.telefon.value.trim();
+  const address = form.adres.value.trim();
+  const email = normalizeEmail(form.eposta.value);
+  const password = form.sifre.value;
+  if (!firstName || !lastName || !phone || !address || !email || !password) {
+    note("#supervisor-form-note", "Tüm alanlar zorunlu.", false);
+    return;
+  }
+  const editId = supervisorEditId || (form.sorumluId ? form.sorumluId.value : "");
+  const clash = (state.supervisors || []).some(function (item) {
+    return item && item.id !== editId && normalizeEmail(item.email) === email;
+  });
+  if (clash) {
+    note("#supervisor-form-note", "Bu e-posta başka sorumluda kayıtlı.", false);
+    return;
+  }
+  if (email === "admin@harbiyemek7.com" || email === "kurye@harbiyemek7.com" || email === "ferah@harbiyemek7.com") {
+    note("#supervisor-form-note", "Bu e-posta rezerve.", false);
+    return;
+  }
+  if (editId) {
+    const person = (state.supervisors || []).filter(function (item) { return item && item.id === editId; })[0];
+    if (!person) {
+      note("#supervisor-form-note", "Sorumlu bulunamadı.", false);
+      return;
+    }
+    person.firstName = firstName;
+    person.lastName = lastName;
+    person.phone = phone;
+    person.address = address;
+    person.email = email;
+    person.password = password;
+  } else {
+    state.supervisors.push({
+      id: uid("sorumlu"),
+      firstName: firstName,
+      lastName: lastName,
+      phone: phone,
+      address: address,
+      email: email,
+      password: password
+    });
+  }
+  persist();
+  resetSupervisorForm();
+  note("#supervisor-form-note", "Sorumlu kaydedildi.", true);
+  renderAdminSupervisors();
+}
+
+function renderAdminSupervisors() {
+  const root = document.querySelector("#admin-supervisors");
+  if (!root) return;
+  const list = state.supervisors || [];
+  if (!list.length) {
+    root.innerHTML = '<p class="empty">Henüz sorumlu yok.</p>';
+    return;
+  }
+  root.innerHTML = list.map(function (person) {
+    const fullName = (person.firstName + " " + person.lastName).trim();
+    return '<article class="order admin-supervisor-card"><h3>' + esc(fullName) + "</h3>"
+      + '<p class="meta">' + esc(person.phone) + " · " + esc(person.email) + "</p>"
+      + '<p class="meta">' + esc(person.address) + "</p>"
+      + '<div class="actions"><button class="btn ghost" type="button" data-action="edit-supervisor" data-id="' + esc(person.id) + '">Düzenle</button>'
+      + adminDeleteButton("delete-supervisor", 'data-id="' + esc(person.id) + '"', "Sil") + "</div></article>";
+  }).join("");
 }
 
 function productFormHtml() {
@@ -2946,7 +3303,7 @@ function paintOwnerMenu(seller) {
       const category = item.category ? " · " + esc(item.category) : "";
       return '<div class="province-row">' + photo + "<span>" + esc(item.name) + " · " + lira(item.price) + category
         + (item.description ? "<br>" + esc(item.description) : "") + "</span>"
-        + '<button class="btn ghost" type="button" data-action="remove-menu-item" data-id="' + esc(item.id) + '">Sil</button></div>';
+        + ownerDeleteButton("remove-menu-item", 'data-id="' + esc(item.id) + '"', "Sil") + "</div>";
     }).join("")
     : '<p class="empty">Ürün yok.</p>';
 }
@@ -3395,6 +3752,18 @@ function renderAdmin() {
     location.replace("giris.html");
     return;
   }
+  const roleNote = document.querySelector("#admin-role-note");
+  if (roleNote) {
+    if (isFullAdmin()) {
+      roleNote.hidden = true;
+      roleNote.textContent = "";
+    } else {
+      roleNote.hidden = false;
+      roleNote.textContent = "Sorumlu hesabı: düzenleme yapabilirsiniz; silme işlemleri kapalıdır.";
+    }
+  }
+  const sorumlularSection = document.querySelector("#admin-section-sorumlular");
+  if (sorumlularSection) sorumlularSection.hidden = !isFullAdmin();
   list.innerHTML = PROVINCES.map(function (name) {
     const on = !!state.provinces[name];
     return '<div class="province-row"><a href="il.html?il=' + encodeURIComponent(name) + '">' + esc(name) + "</a>"
@@ -3407,6 +3776,8 @@ function renderAdmin() {
   renderAdminRestaurants();
   renderAdminFlorists();
   renderAdminCouriers();
+  renderAdminRegions();
+  renderAdminSupervisors();
   renderAdminAccounting();
   const iban = document.querySelector("#commission-iban");
   if (iban && document.activeElement !== iban) iban.value = state.commissionIban || "";
@@ -3654,7 +4025,7 @@ function renderDistrictRestaurants(province, district) {
       + '<div><h3><a href="restoran.html?id=' + encodeURIComponent(restaurant.id) + '">' + esc(restaurant.name) + "</a></h3>"
       + '<p class="meta">' + esc(restaurant.cuisine) + " · " + esc(restaurant.address) + "</p>"
       + '<p class="meta">' + restaurant.menu.length + " ürün</p></div>"
-      + '<button type="button" class="btn ghost" data-action="delete-restaurant" data-id="' + esc(restaurant.id) + '">Sil</button></article>';
+      + adminDeleteButton("delete-restaurant", 'data-id="' + esc(restaurant.id) + '"', "Sil") + "</article>";
   }).join("");
 }
 
@@ -4065,7 +4436,7 @@ function renderRestaurant() {
     extras.innerHTML = restaurant.extras.length
       ? restaurant.extras.map(function (extra) {
         return '<div class="province-row"><span>' + esc(extra.name) + " · +" + lira(extra.plus) + "</span>"
-          + '<button class="btn ghost" type="button" data-action="remove-extra" data-id="' + esc(extra.id) + '">Sil</button></div>';
+          + ownerDeleteButton("remove-extra", 'data-id="' + esc(extra.id) + '"', "Sil") + "</div>";
       }).join("")
       : '<p class="empty">Alternatif ürün yok.</p>';
   }
@@ -4189,7 +4560,7 @@ function buildCourierManagementHtml() {
         + (docs ? "<br>" + docs : "")
         + '</span><span class="meta">' + esc(courier.province || "Şehir yok") + "</span>"
         + '<div class="actions"><button class="btn ghost" type="button" data-action="edit-courier" data-id="' + esc(courier.id) + '">Kurye bilgileri düzenle</button>'
-        + '<button class="btn ghost" type="button" data-action="delete-courier" data-id="' + esc(courier.id) + '">Kurye sil</button></div>'
+        + adminDeleteButton("delete-courier", 'data-id="' + esc(courier.id) + '"', "Kurye sil") + "</div>"
         + (courierEditId === courier.id ? courierEditForm(courier) : "")
         + "</div>";
     }).join("")
