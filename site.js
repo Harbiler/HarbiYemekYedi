@@ -4013,6 +4013,7 @@ function renderCourier() {
       + '<label class="field">Adres<input name="adres" required></label>'
       + '<label class="field">Profil resmi<input name="resim" type="file" accept="image/*" required></label>'
       + '<button class="btn" type="submit">Başvur</button></form></section>';
+    fillApplyProvinces();
     return;
   }
   const courier = findCourier(state, session.courierId);
