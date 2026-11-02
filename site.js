@@ -2,8 +2,7 @@
 
 const KEY = "harbi-yemek-7";
 const COMMISSION = 0.05;
-// Google Cloud > Maps JavaScript API + Places API anahtarı.
-// Boşsa localStorage.harbiMapsKey veya ?mapsKey= kullanılır.
+// Google Cloud Places anahtarı isteğe bağlı. Asıl öneriler /api/google-address ile Google Haritalar'dan gelir.
 const GOOGLE_MAPS_KEY = "";
 
 const PROVINCES = [
@@ -611,6 +610,7 @@ function normalize(data) {
     if (typeof item.district !== "string") item.district = "";
     if (typeof item.phone !== "string") item.phone = "";
     if (typeof item.password !== "string") item.password = "";
+    if (typeof item.photo !== "string") item.photo = "";
   });
   if (!next.courierAssign || typeof next.courierAssign !== "object") next.courierAssign = {};
   if (next.courierAssign.luleburgaz !== "manuel" && next.courierAssign.luleburgaz !== "otomatik") {
@@ -1409,7 +1409,15 @@ function mergeAddressLines() {
   return merged;
 }
 
-function fetchGoogleAddressSuggestions(query) {
+function fetchGoogleMapsSuggest(query) {
+  const url = "/api/google-address?q=" + encodeURIComponent(query);
+  return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    if (!data || !data.ok) return [];
+    return (data.suggestions || []).map(function (line) { return String(line || "").trim(); }).filter(Boolean);
+  }).catch(function () { return []; });
+}
+
+function fetchGooglePlacesSdkSuggestions(query) {
   return ensureGooglePlaces().then(function (ok) {
     if (!ok || !window.google || !google.maps || !google.maps.places) return [];
     return new Promise(function (resolve) {
@@ -1434,12 +1442,53 @@ function fetchGoogleAddressSuggestions(query) {
   });
 }
 
+function fetchGoogleAddressSuggestions(query) {
+  return fetchGoogleMapsSuggest(query).then(function (lines) {
+    if (lines && lines.length) return lines;
+    return fetchGooglePlacesSdkSuggestions(query);
+  });
+}
+
+function formatNominatim(item) {
+  if (!item) return "";
+  const display = String(item.display_name || "").trim();
+  if (!display) return "";
+  const addr = item.address || {};
+  if (addr.country_code && String(addr.country_code).toLowerCase() !== "tr") return "";
+  return display
+    .replace(/, Marmara Bölgesi/gi, "")
+    .replace(/, İç Anadolu Bölgesi/gi, "")
+    .replace(/, Ege Bölgesi/gi, "")
+    .replace(/, Akdeniz Bölgesi/gi, "")
+    .replace(/, Karadeniz Bölgesi/gi, "")
+    .replace(/, Doğu Anadolu Bölgesi/gi, "")
+    .replace(/, Güneydoğu Anadolu Bölgesi/gi, "");
+}
+
+function fetchNominatimAddressSuggestions(query) {
+  const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6"
+    + "&countrycodes=tr&accept-language=tr&q=" + encodeURIComponent(query);
+  return fetch(url, { headers: { Accept: "application/json" } })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      return (Array.isArray(data) ? data : []).map(formatNominatim).filter(Boolean);
+    })
+    .catch(function () { return []; });
+}
+
 function fetchPhotonAddressSuggestions(query) {
   const url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query)
-    + "&limit=6&lang=tr";
+    + "&limit=6&lang=en";
   return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
     return (data.features || []).map(formatPhoton).filter(Boolean);
   }).catch(function () { return []; });
+}
+
+function fetchFallbackAddressSuggestions(query) {
+  return fetchNominatimAddressSuggestions(query).then(function (lines) {
+    if (lines && lines.length) return lines;
+    return fetchPhotonAddressSuggestions(query);
+  });
 }
 
 function cancelAddressLookup() {
@@ -1531,16 +1580,16 @@ function onAddressInput() {
   showSuggestions(local);
   const token = ++addressRequest;
   addressTimer = window.setTimeout(function () {
-    Promise.all([
-      fetchGoogleAddressSuggestions(query),
-      fetchPhotonAddressSuggestions(query)
-    ]).then(function (results) {
-      if (token !== addressRequest) return;
-      const googleLines = results[0] || [];
-      const photonLines = results[1] || [];
-      // Google varsa onu önde tut; yoksa Photon ile Türkiye adresi gelsin.
-      const merged = mergeAddressLines(local, googleLines, googleLines.length ? [] : photonLines).slice(0, 6);
-      showSuggestions(merged);
+    fetchGoogleAddressSuggestions(query).then(function (googleLines) {
+      if (token !== addressRequest) return null;
+      if (googleLines && googleLines.length) {
+        showSuggestions(mergeAddressLines(local, googleLines).slice(0, 6));
+        return null;
+      }
+      return fetchFallbackAddressSuggestions(query);
+    }).then(function (fallbackLines) {
+      if (fallbackLines == null || token !== addressRequest) return;
+      showSuggestions(mergeAddressLines(local, fallbackLines).slice(0, 6));
     }).catch(function () {
       if (token !== addressRequest) return;
       showSuggestions(local);
@@ -1595,6 +1644,8 @@ function boot() {
   state = load();
   hasAdminSession();
   save(state);
+  rememberMapsKeyFromUrl();
+  ensureGooglePlaces();
   const query = qs("q");
   const search = document.querySelector("#q");
   if (search && query) search.value = query;
@@ -2642,12 +2693,9 @@ function submitCourierApplication(form) {
   const password = String(form.sifre.value || "").trim();
   const province = form.il.value;
   const district = form.ilce ? form.ilce.value : "";
-  if (!name || !phone || !email || !password || PROVINCES.indexOf(province) === -1) {
-    note("#courier-apply-note", "Ad, telefon, e-posta, şifre ve şehir gerekli.", false);
-    return;
-  }
-  if (form.ilce && districtsOf(province).indexOf(district) === -1) {
-    note("#courier-apply-note", "İlçe seçin.", false);
+  const photoFile = pickedFile(form, "resim") || (form.resim && form.resim.files ? form.resim.files[0] : null);
+  if (!name || !phone || !email || !password || PROVINCES.indexOf(province) === -1 || districtsOf(province).indexOf(district) === -1 || !photoFile) {
+    note("#courier-apply-note", "Ad, telefon, e-posta, şifre, şehir, ilçe ve profil resmi gerekli.", false);
     return;
   }
   if (email === "kurye@harbiyemek7.com" || email === "admin@harbiyemek7.com") {
@@ -2660,20 +2708,33 @@ function submitCourierApplication(form) {
     note("#courier-apply-note", "Bu e-posta ile başvuru var.", false);
     return;
   }
-  state.courierApplications.push({
-    id: uid("b"),
-    name: name,
-    phone: phone,
-    email: email,
-    password: password,
-    province: province,
-    district: district,
-    status: "bekliyor"
+  const button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  readImageFile(photoFile).then(function (photo) {
+    if (!photo) {
+      note("#courier-apply-note", "Profil resmi kaydedilemedi.", false);
+      return;
+    }
+    state.courierApplications.push({
+      id: uid("b"),
+      name: name,
+      phone: phone,
+      email: email,
+      password: password,
+      province: province,
+      district: district,
+      photo: photo,
+      status: "bekliyor"
+    });
+    persist();
+    form.reset();
+    if (form.ilce) fillDistrictOptions(form.ilce, "");
+    note("#courier-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
+  }).catch(function () {
+    note("#courier-apply-note", "Profil resmi kaydedilemedi.", false);
+  }).then(function () {
+    if (button) button.disabled = false;
   });
-  persist();
-  form.reset();
-  fillDistrictOptions(form.ilce, "");
-  note("#courier-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
 }
 
 function approveCourierApplication(id) {
@@ -2690,6 +2751,7 @@ function approveCourierApplication(id) {
       password: application.password,
       province: application.province,
       district: application.district || "",
+      photo: application.photo || "",
       company: "Harbi Kuryeler",
       approved: true,
       iban: ""
@@ -2703,6 +2765,7 @@ function approveCourierApplication(id) {
   courier.name = application.name;
   courier.phone = application.phone;
   courier.password = application.password;
+  if (application.photo) courier.photo = application.photo;
 }
 
 function submitRestaurant(form) {
@@ -3941,6 +4004,7 @@ function renderCourier() {
       + '<label class="field">Mail<input type="email" name="eposta" required></label>'
       + '<label class="field">Şifre<input type="password" name="sifre" required></label>'
       + '<label class="field">Şehir<select name="il" required>' + provinceSelectHtml() + "</select></label>"
+      + '<label class="field">Profil resmi<input name="resim" type="file" accept="image/*" required></label>'
       + '<button class="btn" type="submit">Başvur</button></form></section>';
     return;
   }
@@ -4010,7 +4074,8 @@ function renderCourierAdmin() {
   });
   const applications = pending.length
     ? pending.map(function (item) {
-      return '<article class="order"><h3>' + esc(item.name) + "</h3>"
+      const photo = item.photo ? '<img class="item-photo" src="' + esc(item.photo) + '" alt="">' : "";
+      return '<article class="order">' + photo + "<h3>" + esc(item.name) + "</h3>"
         + '<p class="meta">' + esc(item.province) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
         + '<div class="actions"><button class="btn" type="button" data-action="approve-application" data-id="' + esc(item.id) + '">Onayla</button></div></article>';
     }).join("")

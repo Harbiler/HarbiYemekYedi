@@ -67,7 +67,7 @@
         <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="courier-apply-panel">Kurye başvurusu</button>
       </h2>
       <div id="courier-apply-panel" class="partner-apply-panel" hidden>
-        <p class="section-note">Onaydan önce sipariş atanmaz ve giriş açılmaz.</p>
+        <p class="section-note">Profil resmi zorunlu. Onaydan önce sipariş atanmaz ve giriş açılmaz.</p>
         <p id="courier-apply-note" class="notice" hidden></p>
         <form data-form="courier-apply">
           <label class="field">Ad soyad<input name="ad" required></label>
@@ -80,6 +80,7 @@
               <option value="">İlçe seçin</option>
             </select>
           </label>
+          <label class="field">Profil resmi<input name="resim" type="file" accept="image/*" required></label>
           <button class="btn" type="submit">Başvur</button>
         </form>
       </div>
