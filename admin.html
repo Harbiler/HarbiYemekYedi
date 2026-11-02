@@ -22,79 +22,103 @@
       </nav>
     </div>
   </header>
-  <main class="wrap">
+  <main class="wrap" id="admin-app">
     <h1>Yönetim</h1>
-    <p class="section-note">Ayarlar bu tarayıcıda saklanır. Kapalı il müşteriye görünmez.</p>
-    <section class="sheet" aria-labelledby="komisyon-iban">
-      <h2 id="komisyon-iban">Komisyon IBAN</h2>
-      <p class="section-note">Her siparişten kesilen %5 bu IBAN’a ayrılır. Kayıt bu tarayıcıda kalır. Bankaya bağlanmaz.</p>
-      <form data-form="save-commission-iban">
-        <label class="field">IBAN
-          <input id="commission-iban" name="iban" autocomplete="off">
-        </label>
-        <p id="commission-iban-note" class="notice" hidden></p>
-        <button class="btn" type="submit">Kaydet</button>
-      </form>
+    <p class="section-note">Ayarlar bu tarayıcıda saklanır. Bölümleri tıklayarak açın.</p>
+
+    <section class="sheet admin-accordion" aria-labelledby="acc-iller">
+      <h2 id="acc-iller">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-panel-iller">İller</button>
+      </h2>
+      <div id="admin-panel-iller" class="admin-accordion-panel" hidden>
+        <p class="section-note">81 il. İle tıklayınca o ilin sayfası açılır. Anahtar siparişi açar veya kapatır; kapalı il ana sayfada görünmez.</p>
+        <div id="provinces" class="province-list"></div>
+        <h3 class="admin-subhead">Ödeme yöntemleri</h3>
+        <p class="section-note">Yalnızca açık olanlar müşteriye, sepette görünür.</p>
+        <div id="gateways" class="province-list"></div>
+      </div>
     </section>
-    <section aria-labelledby="iller">
-      <h2 id="iller">İller</h2>
-      <p class="section-note">81 il. İle tıklayınca o ilin sayfası açılır. Anahtar siparişi açar veya kapatır; kapalı il ana sayfada görünmez.</p>
-      <div id="provinces" class="province-list"></div>
+
+    <section class="sheet admin-accordion" aria-labelledby="acc-restoranlar">
+      <h2 id="acc-restoranlar">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-panel-restoranlar">Restoranlar</button>
+      </h2>
+      <div id="admin-panel-restoranlar" class="admin-accordion-panel" hidden>
+        <h3 class="admin-subhead">Kategoriler</h3>
+        <div class="admin-category-block">
+          <h4 class="admin-subhead-sm">Restoran kategorileri</h4>
+          <form data-form="add-category" data-kind="restoran">
+            <label class="field">Kategori adı<input name="ad" required></label>
+            <p id="category-note-restoran" class="notice" hidden></p>
+            <button class="btn" type="submit">Ekle</button>
+          </form>
+          <div id="categories-restoran" class="category-list"></div>
+        </div>
+        <div class="admin-category-block">
+          <h4 class="admin-subhead-sm">Su Kategorileri</h4>
+          <form data-form="add-category" data-kind="su">
+            <label class="field">Kategori adı<input name="ad" required></label>
+            <p id="category-note-su" class="notice" hidden></p>
+            <button class="btn" type="submit">Ekle</button>
+          </form>
+          <div id="categories-su" class="category-list"></div>
+        </div>
+        <div class="admin-category-block">
+          <h4 class="admin-subhead-sm">Market Kategorileri</h4>
+          <form data-form="add-category" data-kind="market">
+            <label class="field">Kategori adı<input name="ad" required></label>
+            <p id="category-note-market" class="notice" hidden></p>
+            <button class="btn" type="submit">Ekle</button>
+          </form>
+          <div id="categories-market" class="category-list"></div>
+        </div>
+        <div class="admin-category-block">
+          <h4 class="admin-subhead-sm">Çiçekçi Kategorileri</h4>
+          <form data-form="add-category" data-kind="cicekci">
+            <label class="field">Kategori adı<input name="ad" required></label>
+            <p id="category-note-cicekci" class="notice" hidden></p>
+            <button class="btn" type="submit">Ekle</button>
+          </form>
+          <div id="categories-cicekci" class="category-list"></div>
+        </div>
+        <h3 class="admin-subhead">İş ortağı başvuruları</h3>
+        <p class="section-note">Onaylanınca restoran, su, market veya çiçekçi listeye girer. Kurye başvuruları Kuryeler bölümünde.</p>
+        <div id="partner-applications"></div>
+        <h3 class="admin-subhead">Onaylı ve bekleyen işletmeler</h3>
+        <div id="admin-restaurants"></div>
+        <h3 class="admin-subhead">Çiçekçiler</h3>
+        <p class="section-note">Onaylı çiçekçilerin profilini buradan düzenleyin. Kapalı olanlar ana sayfada görünmez.</p>
+        <div id="admin-florists"></div>
+      </div>
     </section>
-    <section aria-labelledby="odeme">
-      <h2 id="odeme">Ödeme yöntemleri</h2>
-      <p class="section-note">Yalnızca açık olanlar müşteriye, sepette görünür.</p>
-      <div id="gateways" class="province-list"></div>
+
+    <section class="sheet admin-accordion" aria-labelledby="acc-kuryeler">
+      <h2 id="acc-kuryeler">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-panel-kuryeler">Kuryeler</button>
+      </h2>
+      <div id="admin-panel-kuryeler" class="admin-accordion-panel" hidden>
+        <div id="admin-couriers"></div>
+      </div>
     </section>
-    <section class="sheet" aria-labelledby="kat-restoran">
-      <h2 id="kat-restoran">Restoran kategorileri</h2>
-      <form data-form="add-category" data-kind="restoran">
-        <label class="field">Kategori adı<input name="ad" required></label>
-        <p id="category-note-restoran" class="notice" hidden></p>
-        <button class="btn" type="submit">Ekle</button>
-      </form>
-      <div id="categories-restoran" class="category-list"></div>
-    </section>
-    <section class="sheet" aria-labelledby="kat-su">
-      <h2 id="kat-su">Su Kategorileri</h2>
-      <form data-form="add-category" data-kind="su">
-        <label class="field">Kategori adı<input name="ad" required></label>
-        <p id="category-note-su" class="notice" hidden></p>
-        <button class="btn" type="submit">Ekle</button>
-      </form>
-      <div id="categories-su" class="category-list"></div>
-    </section>
-    <section class="sheet" aria-labelledby="kat-market">
-      <h2 id="kat-market">Market Kategorileri</h2>
-      <form data-form="add-category" data-kind="market">
-        <label class="field">Kategori adı<input name="ad" required></label>
-        <p id="category-note-market" class="notice" hidden></p>
-        <button class="btn" type="submit">Ekle</button>
-      </form>
-      <div id="categories-market" class="category-list"></div>
-    </section>
-    <section class="sheet" aria-labelledby="kat-cicekci">
-      <h2 id="kat-cicekci">Çiçekçi Kategorileri</h2>
-      <form data-form="add-category" data-kind="cicekci">
-        <label class="field">Kategori adı<input name="ad" required></label>
-        <p id="category-note-cicekci" class="notice" hidden></p>
-        <button class="btn" type="submit">Ekle</button>
-      </form>
-      <div id="categories-cicekci" class="category-list"></div>
-    </section>
-    <section aria-labelledby="is-ortagi-basvuru">
-      <h2 id="is-ortagi-basvuru">İş ortağı başvuruları</h2>
-      <p class="section-note">Onaylanınca restoran, su, market veya çiçekçi listeye girer, kurye sipariş alabilir. Hepsi giriş yapabilir.</p>
-      <div id="partner-applications"></div>
-    </section>
-    <section aria-labelledby="restoranlar">
-      <h2 id="restoranlar">Restoranlar</h2>
-      <div id="admin-restaurants"></div>
-    </section>
-    <section aria-labelledby="cicekciler">
-      <h2 id="cicekciler">Çiçekçiler</h2>
-      <p class="section-note">Onaylı çiçekçilerin profilini buradan düzenleyin. Kapalı olanlar ana sayfada görünmez.</p>
-      <div id="admin-florists"></div>
+
+    <section class="sheet admin-accordion" aria-labelledby="acc-muhasebe">
+      <h2 id="acc-muhasebe">
+        <button type="button" class="section-toggle" data-action="toggle-partner-panel" aria-expanded="false" aria-controls="admin-panel-muhasebe">Muhasebe</button>
+      </h2>
+      <div id="admin-panel-muhasebe" class="admin-accordion-panel" hidden>
+        <h3 class="admin-subhead">Komisyon IBAN</h3>
+        <p class="section-note">Her siparişten kesilen %5 bu IBAN’a ayrılır. Kayıt bu tarayıcıda kalır. Bankaya bağlanmaz.</p>
+        <form data-form="save-commission-iban">
+          <label class="field">IBAN
+            <input id="commission-iban" name="iban" autocomplete="off">
+          </label>
+          <p id="commission-iban-note" class="notice" hidden></p>
+          <button class="btn" type="submit">Kaydet</button>
+        </form>
+        <h3 class="admin-subhead">Platform kazancı</h3>
+        <p class="section-note">Teslim edilen ve onaylı siparişlerden toplanan komisyon özeti. İptal ve bekleyen siparişler dahil değildir.</p>
+        <div id="admin-platform-earnings" class="earnings-grid"></div>
+      </div>
     </section>
   </main>
   <footer class="site-footer">

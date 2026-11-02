@@ -1065,6 +1065,21 @@ function periodStart(kind, now) {
   return start;
 }
 
+function platformEarningTotals(kind) {
+  const start = periodStart(kind, new Date());
+  let gross = 0;
+  let commission = 0;
+  state.orders.forEach(function (order) {
+    if (!order || order.status === "iptal" || order.status === "yeni") return;
+    const when = new Date(order.createdAt);
+    if (isNaN(when.getTime()) || when < start) return;
+    const money = orderMoney(order);
+    gross += money.total;
+    commission += money.commission;
+  });
+  return { gross: gross, commission: commission, net: commission };
+}
+
 function earningTotals(restaurant, kind) {
   const start = periodStart(kind, new Date());
   let gross = 0;
@@ -1706,7 +1721,7 @@ function onClick(event) {
       });
     }
     persist();
-    renderCourierAdmin();
+    renderCourierPanels();
     return;
   }
   if (action === "delete-courier") {
@@ -1714,13 +1729,13 @@ function onClick(event) {
     if (courierEditId === id) courierEditId = "";
     state.couriers = (state.couriers || []).filter(function (courier) { return courier && courier.id !== id; });
     persist();
-    renderCourierAdmin();
+    renderCourierPanels();
     return;
   }
   if (action === "edit-courier") {
     const id = button.dataset.id;
     courierEditId = courierEditId === id ? "" : id;
-    renderCourierAdmin();
+    renderCourierPanels();
     return;
   }
   if (action === "approve-application") {
@@ -1755,7 +1770,7 @@ function onClick(event) {
     const select = card ? card.querySelector("select") : null;
     assignCourierManual(state, button.dataset.id, select ? select.value : "");
     persist();
-    renderCourierAdmin();
+    renderCourierPanels();
     return;
   }
   if (action === "toggle-restaurant-form") {
@@ -1955,6 +1970,7 @@ function onSubmit(event) {
   if (kind === "restaurant-apply") return submitRestaurantApplication(form);
   if (kind === "florist-apply") return submitFloristApplication(form);
   if (kind === "edit-florist") return submitEditFlorist(form);
+  if (kind === "edit-restaurant") return submitEditRestaurant(form);
   if (kind === "add-courier") return submitAddCourier(form);
   if (kind === "edit-courier") return submitEditCourier(form);
   if (kind === "add-restaurant") return submitRestaurant(form);
@@ -2299,7 +2315,7 @@ function submitEditCourier(form) {
   }
   courierEditId = "";
   persist();
-  renderCourierAdmin();
+  renderCourierPanels();
 }
 
 function submitAddCourier(form) {
@@ -2344,7 +2360,7 @@ function submitAddCourier(form) {
       approved: true
     });
     persist();
-    renderCourierAdmin();
+    renderCourierPanels();
     note("#add-courier-note", "Kurye eklendi.", true);
   }).catch(function () {
     note("#add-courier-note", "Dosya kaydedilemedi.", false);
@@ -2638,6 +2654,47 @@ function approveFloristApplication(id) {
   florist.district = application.district || "";
   florist.address = application.address;
   if (application.photo) florist.photo = application.photo;
+}
+
+function submitEditRestaurant(form) {
+  const id = form.dataset.id || "";
+  const restaurant = state.restaurants.filter(function (item) { return item && item.id === id; })[0];
+  if (!restaurant) return;
+  const name = form.ad.value.trim();
+  const phone = form.telefon.value.trim();
+  const cuisine = form.mutfak.value.trim();
+  const address = form.adres.value.trim();
+  const province = form.il.value;
+  if (!name || !cuisine || !address || PROVINCES.indexOf(province) === -1) {
+    note("#restaurant-edit-note-" + id, "Ad, mutfak, adres ve şehir gerekli.", false);
+    return;
+  }
+  const button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  const photoFile = form.resim && form.resim.files ? form.resim.files[0] : null;
+  const done = function (photo) {
+    restaurant.name = name;
+    restaurant.phone = phone;
+    restaurant.cuisine = cuisine;
+    restaurant.address = address;
+    restaurant.province = province;
+    if (photo) restaurant.photo = photo;
+    persist();
+    renderAdminRestaurants();
+    note("#restaurant-edit-note-" + id, "Profil kaydedildi.", true);
+  };
+  if (!photoFile) {
+    done("");
+    if (button) button.disabled = false;
+    return;
+  }
+  readImageFile(photoFile).then(function (photo) {
+    done(photo);
+  }).catch(function () {
+    note("#restaurant-edit-note-" + id, "Profil resmi kaydedilemedi.", false);
+  }).then(function () {
+    if (button) button.disabled = false;
+  });
 }
 
 function submitEditFlorist(form) {
@@ -3311,7 +3368,7 @@ function renderHome() {
 }
 
 function fillApplyProvinces() {
-  document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='partner-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il'], form[data-form='florist-apply'] select[name='il'], form[data-form='edit-florist'] select[name='il']").forEach(function (select) {
+  document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='partner-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il'], form[data-form='florist-apply'] select[name='il'], form[data-form='edit-florist'] select[name='il'], form[data-form='edit-restaurant'] select[name='il']").forEach(function (select) {
     if (select.dataset.ready === "1" && select.options.length > 1) return;
     select.dataset.ready = "1";
     const current = select.value || select.dataset.province || "";
@@ -3349,8 +3406,18 @@ function renderAdmin() {
   renderPartnerApplications();
   renderAdminRestaurants();
   renderAdminFlorists();
+  renderAdminCouriers();
+  renderAdminAccounting();
   const iban = document.querySelector("#commission-iban");
   if (iban && document.activeElement !== iban) iban.value = state.commissionIban || "";
+}
+
+function renderAdminAccounting() {
+  const root = document.querySelector("#admin-platform-earnings");
+  if (!root) return;
+  root.innerHTML = earningCard("Günlük komisyon", platformEarningTotals("day"))
+    + earningCard("Haftalık komisyon", platformEarningTotals("week"))
+    + earningCard("Aylık komisyon", platformEarningTotals("month"));
 }
 
 function renderGateways() {
@@ -3396,27 +3463,59 @@ function renderPartnerApplications() {
   if (!root) return;
   const businesses = (state.restaurantApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
   const florists = (state.floristApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
-  const couriers = (state.courierApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
   const cards = businesses.map(function (item) { return partnerApplicationCard(item, "business"); })
-    .concat(florists.map(function (item) { return partnerApplicationCard(item, "cicekci"); }))
-    .concat(couriers.map(function (item) { return partnerApplicationCard(item, "kurye"); }));
-  root.innerHTML = cards.length ? cards.join("") : '<p class="empty">Bekleyen başvuru yok.</p>';
+    .concat(florists.map(function (item) { return partnerApplicationCard(item, "cicekci"); }));
+  root.innerHTML = cards.length ? cards.join("") : '<p class="empty">Bekleyen işletme başvurusu yok.</p>';
+}
+
+function adminRestaurantCard(restaurant, pending) {
+  const open = state.provinces[restaurant.province] ? "Müşteriye açık" : "Müşteriye kapalı";
+  const status = pending ? "Beklemede" : (restaurant.approved === false ? "Kapalı" : "Onaylı");
+  const photo = restaurant.photo
+    ? '<img class="restaurant-thumb" src="' + esc(restaurant.photo) + '" alt="' + esc(restaurant.name) + '">'
+    : "";
+  const approveBtn = pending
+    ? '<div class="actions"><button class="btn" type="button" data-action="approve-restaurant-application" data-id="' + esc(restaurant.id) + '">Onayla</button></div>'
+    : "";
+  const panelLink = pending ? "" : '<p class="actions" style="margin:12px 0"><a class="btn ghost" href="restoran.html?id=' + encodeURIComponent(restaurant.id) + '">İşletme paneli</a></p>';
+  const editForm = pending ? "" : '<form data-form="edit-restaurant" data-id="' + esc(restaurant.id) + '">'
+    + '<label class="field">Ad<input name="ad" value="' + esc(restaurant.name) + '" required></label>'
+    + '<label class="field">Telefon<input name="telefon" value="' + esc(restaurant.phone || "") + '"></label>'
+    + '<label class="field">Mutfak / tür<input name="mutfak" value="' + esc(restaurant.cuisine || "") + '" required></label>'
+    + '<label class="field">Adres<input name="adres" value="' + esc(restaurant.address || "") + '" required></label>'
+    + '<label class="field">Şehir<select name="il" data-province="' + esc(restaurant.province || "") + '" required></select></label>'
+    + '<label class="field">Profil resmi<input name="resim" type="file" accept="image/*"></label>'
+    + '<p id="restaurant-edit-note-' + esc(restaurant.id) + '" class="notice" hidden></p>'
+    + '<button class="btn" type="submit">Profili kaydet</button></form>';
+  return '<article class="order">' + photo + "<h3>" + esc(restaurant.name) + "</h3>"
+    + '<p class="meta">' + esc(restaurant.province) + " · " + esc(restaurant.cuisine || "Restoran") + " · " + esc(status) + " · " + esc(open) + "</p>"
+    + '<p class="meta">' + esc(restaurant.address || "") + "</p>"
+    + (restaurant.phone ? '<p class="meta">' + esc(restaurant.phone) + "</p>" : "")
+    + approveBtn + panelLink + editForm + "</article>";
 }
 
 function renderAdminRestaurants() {
   const root = document.querySelector("#admin-restaurants");
   if (!root) return;
-  if (!state.restaurants.length) {
-    root.innerHTML = '<p class="empty">Henüz restoran yok.</p>';
-    return;
-  }
-  root.innerHTML = state.restaurants.map(function (restaurant) {
-    const open = state.provinces[restaurant.province] ? "Müşteriye açık" : "Müşteriye kapalı";
-    return '<article class="order"><h3>' + esc(restaurant.name) + "</h3>"
-      + '<p class="meta">' + esc(restaurant.province) + " · " + esc(restaurant.cuisine) + " · " + esc(open) + "</p>"
-      + '<p class="meta">' + esc(restaurant.address) + "</p>"
-      + '<p style="margin:12px 0 0"><span class="commission">' + esc(commissionText()) + "</span></p></article>";
-  }).join("");
+  const pending = (state.restaurantApplications || []).filter(function (item) {
+    return item && item.status !== "onayli" && item.kind !== "su" && item.kind !== "market";
+  });
+  const cards = pending.map(function (item) {
+    return adminRestaurantCard({
+      id: item.id,
+      name: item.name,
+      province: item.province,
+      cuisine: partnerKindLabel(item.kind === "su" || item.kind === "market" ? item.kind : "restoran"),
+      address: item.address,
+      phone: item.phone,
+      photo: item.photo,
+      approved: false
+    }, true);
+  }).concat(state.restaurants.map(function (restaurant) {
+    return adminRestaurantCard(restaurant, false);
+  }));
+  root.innerHTML = cards.length ? cards.join("") : '<p class="empty">Henüz işletme yok.</p>';
+  fillApplyProvinces();
 }
 
 function renderAdminFlorists() {
@@ -4059,16 +4158,10 @@ function courierEditForm(courier) {
     + '<button class="btn" type="submit">Kaydet</button></form>';
 }
 
-function renderCourierAdmin() {
-  const root = document.querySelector("#courier-admin-app");
-  if (!root) return;
-  if (!state.session || state.session.role !== "kurye-yonetim") {
-    location.replace("giris.html");
-    return;
-  }
+function buildCourierManagementHtml() {
   const mode = luleburgazMode(state);
-  const pending = state.courierApplications.filter(function (item) { return item.status !== "onayli"; });
-  const approved = state.couriers.filter(function (courier) { return courier.approved !== false; });
+  const pending = (state.courierApplications || []).filter(function (item) { return item.status !== "onayli"; });
+  const approved = (state.couriers || []).filter(function (courier) { return courier.approved !== false; });
   const openOrders = state.orders.filter(function (order) {
     return order.deliveryMode !== "kendi" && (order.status === "bekliyor" || order.status === "atandi") && isLuleburgazPlace(orderPlace(state, order));
   });
@@ -4118,13 +4211,11 @@ function renderCourierAdmin() {
       }).join("")
       : '<p class="empty">Atanacak Lüleburgaz siparişi yok.</p>';
   }
-  root.innerHTML = '<p class="eyebrow">Harbi Kuryeler</p><h1>Harbi Kurye yönetimi</h1>'
-    + '<p class="section-note">Ayarlar ve onaylar bu tarayıcıda kalır. Onaylı kurye yalnız kendi şehrindeki siparişi alır.</p>'
-    + '<section class="sheet"><h2>Sipariş atama</h2>'
+  return '<section class="sheet"><h3 class="admin-subhead">Sipariş atama</h3>'
     + '<p class="section-note">Yalnızca Lüleburgaz. Tıklayınca otomatik, tekrar tıklayınca manuel.</p>'
     + '<button type="button" class="btn" data-action="toggle-luleburgaz-assign" aria-pressed="' + (mode === "otomatik" ? "true" : "false") + '">Lüleburgaz: ' + (mode === "manuel" ? "Manuel" : "Otomatik") + "</button>"
     + manualHtml + "</section>"
-    + '<section class="sheet"><h2>Kurye ekle</h2>'
+    + '<section class="sheet"><h3 class="admin-subhead">Kurye ekle</h3>'
     + '<p class="section-note">İsim, soyisim, telefon, adres, resim, TC, ikametgah belgesi ve sabıka kaydı zorunlu. Biri boşsa kaydedilmez. Kayıt ve belgeler bu tarayıcıda kalır. Adresin sonuna ili yazın; kurye yalnız o şehirdeki siparişi alır.</p>'
     + '<p id="add-courier-note" class="notice" hidden></p>'
     + '<form data-form="add-courier">'
@@ -4137,8 +4228,33 @@ function renderCourierAdmin() {
     + '<label class="field">İkametgah belgesi<input name="ikametgah" type="file" accept="image/*,.pdf" required></label>'
     + '<label class="field">Sabıka kaydı<input name="sabika" type="file" accept="image/*,.pdf" required></label>'
     + '<button class="btn" type="submit">Kaydet</button></form></section>'
-    + '<section class="sheet"><h2>Kurye başvuruları</h2>' + applications + "</section>"
-    + '<section class="sheet"><h2>Onaylı kuryeler</h2>' + approvedHtml + "</section>";
+    + '<section class="sheet"><h3 class="admin-subhead">Kurye başvuruları</h3>' + applications + "</section>"
+    + '<section class="sheet"><h3 class="admin-subhead">Onaylı kuryeler</h3>' + approvedHtml + "</section>";
+}
+
+function renderCourierPanels() {
+  renderCourierAdmin();
+  renderAdminCouriers();
+}
+
+function renderAdminCouriers() {
+  const root = document.querySelector("#admin-couriers");
+  if (!root) return;
+  if (!hasAdminSession()) return;
+  root.innerHTML = '<p class="section-note">Ayarlar ve onaylar bu tarayıcıda kalır. Onaylı kurye yalnız kendi şehrindeki siparişi alır.</p>'
+    + buildCourierManagementHtml();
+}
+
+function renderCourierAdmin() {
+  const root = document.querySelector("#courier-admin-app");
+  if (!root) return;
+  if (!state.session || state.session.role !== "kurye-yonetim") {
+    location.replace("giris.html");
+    return;
+  }
+  root.innerHTML = '<p class="eyebrow">Harbi Kuryeler</p><h1>Harbi Kurye yönetimi</h1>'
+    + '<p class="section-note">Ayarlar ve onaylar bu tarayıcıda kalır. Onaylı kurye yalnız kendi şehrindeki siparişi alır.</p>'
+    + buildCourierManagementHtml();
 }
 
 function renderLogin() {

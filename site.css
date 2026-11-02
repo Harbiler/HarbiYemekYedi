@@ -459,7 +459,29 @@ a { color: inherit; }
   content: " ▾";
 }
 #district-restaurant-form[hidden],
-.partner-apply-panel[hidden] { display: none; }
+.partner-apply-panel[hidden],
+.admin-accordion-panel[hidden] { display: none; }
+
+.admin-accordion { margin-bottom: 16px; }
+.admin-accordion > h2 { margin: 0; }
+.admin-subhead {
+  margin: 20px 0 8px;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+.admin-subhead-sm {
+  margin: 12px 0 6px;
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+.admin-category-block {
+  margin: 0 0 16px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.admin-category-block:last-of-type { border-bottom: 0; }
+#admin-app .province-row { flex-wrap: wrap; align-items: flex-start; }
+#admin-app .courier-edit { flex: 1 0 100%; min-width: 0; }
 
 .lanes {
   display: flex;
@@ -1367,6 +1389,9 @@ h2 .section-toggle {
     line-height: 1.35;
   }
   #courier-admin-app section + section { margin-top: 8px; }
+  #admin-app .admin-accordion { padding: 14px 12px; }
+  #admin-app .admin-subhead { font-size: 0.95rem; }
+  #admin-app .section-toggle { width: 100%; text-align: left; }
   #courier-admin-app .sheet,
   #courier-admin-app .order,
   #courier-admin-app .empty,
