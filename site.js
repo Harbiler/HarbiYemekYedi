@@ -2,6 +2,9 @@
 
 const KEY = "harbi-yemek-7";
 const COMMISSION = 0.05;
+// Google Cloud > Maps JavaScript API + Places API anahtarı.
+// Boşsa localStorage.harbiMapsKey veya ?mapsKey= kullanılır.
+const GOOGLE_MAPS_KEY = "";
 
 const PROVINCES = [
   "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya",
@@ -165,15 +168,55 @@ function districtInText(text) {
   return province ? found : "";
 }
 
+function stripCountryLabel(part) {
+  const key = String(part || "").trim().toLocaleLowerCase("tr");
+  if (!key) return "";
+  if (key === "türkiye" || key === "turkey" || key === "turkiye") return "";
+  return String(part || "").trim();
+}
+
+function placeFromSlashSegment(segment) {
+  const raw = String(segment || "").trim();
+  const match = raw.match(/^([^\/]+)\s*\/\s*([^\/]+)$/);
+  if (!match) return null;
+  const left = stripCountryLabel(match[1]);
+  const right = stripCountryLabel(match[2]);
+  if (!left || !right) return null;
+  const provinceRight = provinceNamed(right);
+  if (provinceRight) {
+    const district = districtsOf(provinceRight).indexOf(left) !== -1 ? left : matchDistrict(provinceRight, left);
+    return { province: provinceRight, district: district };
+  }
+  const provinceLeft = provinceNamed(left);
+  if (provinceLeft) {
+    const district = districtsOf(provinceLeft).indexOf(right) !== -1 ? right : matchDistrict(provinceLeft, right);
+    return { province: provinceLeft, district: district };
+  }
+  return null;
+}
+
 function customerPlaceFromAddress(text) {
   const raw = String(text || "").trim();
   if (!raw) return { province: "", district: "" };
   if (isLuleburgazCustomerAddress(raw)) return { province: "Kırklareli", district: "Lüleburgaz" };
-  const parts = raw.split(",").map(function (part) { return part.trim(); }).filter(Boolean);
+  const parts = raw.split(",").map(function (part) { return stripCountryLabel(part); }).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const slash = placeFromSlashSegment(parts[i]);
+    if (slash && slash.province) {
+      if (!slash.district) slash.district = matchDistrict(slash.province, raw);
+      return slash;
+    }
+  }
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const province = provinceNamed(parts[i]);
     if (!province) continue;
-    return { province: province, district: matchDistrict(province, raw) };
+    let district = "";
+    if (i > 0) {
+      const prev = parts[i - 1];
+      if (districtsOf(province).indexOf(prev) !== -1) district = prev;
+    }
+    if (!district) district = matchDistrict(province, raw);
+    return { province: province, district: district };
   }
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const province = provinceByDistrict(parts[i]);
@@ -305,8 +348,10 @@ function blankState() {
     cart: [],
     waterBusinesses: [],
     markets: [],
-    catalogCategories: { restoran: [], su: [], market: [] },
-    restaurantApplications: []
+    florists: [],
+    catalogCategories: { restoran: [], su: [], market: [], cicekci: [] },
+    restaurantApplications: [],
+    floristApplications: []
   };
 }
 
@@ -539,6 +584,20 @@ function normalize(data) {
     if (typeof item.province !== "string") item.province = "";
     if (typeof item.id !== "string" || !item.id) item.id = uid("rb");
     if (typeof item.password !== "string") item.password = "";
+    if (typeof item.photo !== "string") item.photo = "";
+    if (item.status !== "onayli") item.status = "bekliyor";
+  });
+  if (!Array.isArray(next.floristApplications)) next.floristApplications = [];
+  next.floristApplications = next.floristApplications.filter(function (item) {
+    return item && typeof item.name === "string" && typeof item.email === "string";
+  });
+  next.floristApplications.forEach(function (item) {
+    if (typeof item.phone !== "string") item.phone = "";
+    if (typeof item.address !== "string") item.address = "";
+    if (typeof item.province !== "string") item.province = "";
+    if (typeof item.id !== "string" || !item.id) item.id = uid("fb");
+    if (typeof item.password !== "string") item.password = "";
+    if (typeof item.photo !== "string") item.photo = "";
     if (item.status !== "onayli") item.status = "bekliyor";
   });
   if (!Array.isArray(next.courierApplications)) next.courierApplications = [];
@@ -603,6 +662,7 @@ function normalize(data) {
   });
   next.waterBusinesses = normalizeShopList(next.waterBusinesses);
   next.markets = normalizeShopList(next.markets);
+  next.florists = normalizeShopList(next.florists);
   next.catalogCategories = normalizeCatalogCategories(next.catalogCategories);
   return next;
 }
@@ -612,7 +672,8 @@ function normalizeCatalogCategories(bag) {
   return {
     restoran: normalizeCategoryList(source.restoran),
     su: normalizeCategoryList(source.su),
-    market: normalizeCategoryList(source.market)
+    market: normalizeCategoryList(source.market),
+    cicekci: normalizeCategoryList(source.cicekci)
   };
 }
 
@@ -641,6 +702,11 @@ function normalizeShopList(list) {
     if (typeof shop.district !== "string") shop.district = "";
     if (typeof shop.address !== "string") shop.address = "";
     if (typeof shop.iban !== "string") shop.iban = "";
+    if (typeof shop.email !== "string") shop.email = "";
+    if (typeof shop.password !== "string") shop.password = "";
+    if (typeof shop.phone !== "string") shop.phone = "";
+    if (typeof shop.photo !== "string") shop.photo = "";
+    if (typeof shop.approved !== "boolean") shop.approved = true;
     if (typeof shop.id !== "string" || !shop.id) shop.id = uid("shop");
     if (!Array.isArray(shop.menu)) shop.menu = [];
     shop.menu.forEach(function (item) {
@@ -692,7 +758,7 @@ function findRestaurant(state, id) {
 }
 
 function findShop(id) {
-  const lists = (state.waterBusinesses || []).concat(state.markets || []);
+  const lists = (state.waterBusinesses || []).concat(state.markets || []).concat(state.florists || []);
   return lists.filter(function (shop) { return shop && shop.id === id; })[0] || null;
 }
 
@@ -1127,7 +1193,7 @@ function accountHome() {
   const role = sessionRole();
   if (role === "yonetim") return "admin.html";
   if (role === "kurye-yonetim" || role === "kurye") return role === "kurye" ? "kurye.html" : "kurye-yonetim.html";
-  if (role === "restoran" || role === "su" || role === "market") return "restoran.html";
+  if (role === "restoran" || role === "su" || role === "market" || role === "cicekci") return "restoran.html";
   if (role === "musteri") return "siparisler.html";
   return "index.html";
 }
@@ -1194,6 +1260,7 @@ function render() {
   else if (page === "restaurants") renderRestaurantList();
   else if (page === "water") renderShopStandalone(state.waterBusinesses, "Şehrindeki Su Dağıtım İşletmeleri");
   else if (page === "market") renderShopStandalone(state.markets, "Şehrindeki market İşletmeleri");
+  else if (page === "florist") renderShopStandalone(visibleFlorists(), "Şehrindeki Çiçekçiler");
   else if (page === "admin") renderAdmin();
   else if (page === "city") renderCity();
   else if (page === "district") renderDistrictPage();
@@ -1236,6 +1303,63 @@ const LOCAL_ADDRESSES = [
 
 let addressTimer = 0;
 let addressRequest = 0;
+let googlePlacesPromise = null;
+let googlePlacesOk = false;
+
+function rememberMapsKeyFromUrl() {
+  const key = qs("mapsKey") || qs("mapskey") || "";
+  if (!key) return;
+  try { storage().setItem("harbiMapsKey", key); } catch (err) {}
+}
+
+function googleMapsKey() {
+  rememberMapsKeyFromUrl();
+  if (GOOGLE_MAPS_KEY && String(GOOGLE_MAPS_KEY).trim()) return String(GOOGLE_MAPS_KEY).trim();
+  try {
+    const saved = storage().getItem("harbiMapsKey");
+    if (saved && String(saved).trim()) return String(saved).trim();
+  } catch (err) {}
+  return "";
+}
+
+function ensureGooglePlaces() {
+  if (googlePlacesOk && window.google && google.maps && google.maps.places) {
+    return Promise.resolve(true);
+  }
+  if (googlePlacesPromise) return googlePlacesPromise;
+  const key = googleMapsKey();
+  if (!key) {
+    googlePlacesPromise = Promise.resolve(false);
+    return googlePlacesPromise;
+  }
+  googlePlacesPromise = new Promise(function (resolve) {
+    const done = function (ok) {
+      googlePlacesOk = !!ok;
+      resolve(!!ok);
+    };
+    window.gm_authFailure = function () { done(false); };
+    if (window.google && google.maps && google.maps.places) {
+      done(true);
+      return;
+    }
+    const existing = document.querySelector("script[data-harbi-maps]");
+    if (existing) {
+      existing.addEventListener("load", function () { done(!!(window.google && google.maps && google.maps.places)); });
+      existing.addEventListener("error", function () { done(false); });
+      return;
+    }
+    const callbackName = "__harbiGoogleMapsReady";
+    window[callbackName] = function () { done(!!(window.google && google.maps && google.maps.places)); };
+    const script = document.createElement("script");
+    script.async = true;
+    script.dataset.harbiMaps = "1";
+    script.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(key)
+      + "&libraries=places&language=tr&region=TR&loading=async&callback=" + callbackName;
+    script.onerror = function () { done(false); };
+    document.head.appendChild(script);
+  });
+  return googlePlacesPromise;
+}
 
 function localAddressMatches(query) {
   const q = query.toLocaleLowerCase("tr");
@@ -1258,6 +1382,60 @@ function formatPhoton(feature) {
   if (city && parts.indexOf(city) === -1) parts.push(city);
   if (props.state && parts.indexOf(props.state) === -1) parts.push(props.state);
   return parts.join(", ");
+}
+
+function formatGooglePrediction(item) {
+  if (!item) return "";
+  return String(item.description || "").trim();
+}
+
+function mergeAddressLines() {
+  const seen = {};
+  const merged = [];
+  Array.prototype.forEach.call(arguments, function (list) {
+    (list || []).forEach(function (line) {
+      const text = String(line || "").trim();
+      if (!text) return;
+      const key = text.toLocaleLowerCase("tr");
+      if (seen[key]) return;
+      seen[key] = true;
+      merged.push(text);
+    });
+  });
+  return merged;
+}
+
+function fetchGoogleAddressSuggestions(query) {
+  return ensureGooglePlaces().then(function (ok) {
+    if (!ok || !window.google || !google.maps || !google.maps.places) return [];
+    return new Promise(function (resolve) {
+      try {
+        const svc = new google.maps.places.AutocompleteService();
+        svc.getPlacePredictions({
+          input: query,
+          componentRestrictions: { country: "tr" },
+          language: "tr",
+          types: ["geocode"]
+        }, function (predictions, status) {
+          if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+            resolve([]);
+            return;
+          }
+          resolve(predictions.map(formatGooglePrediction).filter(Boolean).slice(0, 6));
+        });
+      } catch (err) {
+        resolve([]);
+      }
+    });
+  });
+}
+
+function fetchPhotonAddressSuggestions(query) {
+  const url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query)
+    + "&limit=6&lang=tr";
+  return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    return (data.features || []).map(formatPhoton).filter(Boolean);
+  }).catch(function () { return []; });
 }
 
 function cancelAddressLookup() {
@@ -1349,21 +1527,20 @@ function onAddressInput() {
   showSuggestions(local);
   const token = ++addressRequest;
   addressTimer = window.setTimeout(function () {
-    const url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query + " Lüleburgaz")
-      + "&lat=41.403&lon=27.356&limit=5&lang=tr";
-    fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    Promise.all([
+      fetchGoogleAddressSuggestions(query),
+      fetchPhotonAddressSuggestions(query)
+    ]).then(function (results) {
       if (token !== addressRequest) return;
-      const remote = (data.features || []).map(formatPhoton).filter(Boolean);
-      const seen = {};
-      const merged = [];
-      local.concat(remote).forEach(function (line) {
-        const key = line.toLocaleLowerCase("tr");
-        if (seen[key]) return;
-        seen[key] = true;
-        merged.push(line);
-      });
-      showSuggestions(merged.slice(0, 6));
-    }).catch(function () {});
+      const googleLines = results[0] || [];
+      const photonLines = results[1] || [];
+      // Google varsa onu önde tut; yoksa Photon ile Türkiye adresi gelsin.
+      const merged = mergeAddressLines(local, googleLines, googleLines.length ? [] : photonLines).slice(0, 6);
+      showSuggestions(merged);
+    }).catch(function () {
+      if (token !== addressRequest) return;
+      showSuggestions(local);
+    });
   }, 280);
 }
 
@@ -1511,6 +1688,20 @@ function onClick(event) {
     renderAdmin();
     return;
   }
+  if (action === "approve-florist-application") {
+    approveFloristApplication(button.dataset.id);
+    persist();
+    renderAdmin();
+    return;
+  }
+  if (action === "toggle-florist") {
+    const florist = (state.florists || []).filter(function (item) { return item && item.id === button.dataset.id; })[0];
+    if (!florist) return;
+    florist.approved = florist.approved === false;
+    persist();
+    renderAdminFlorists();
+    return;
+  }
   if (action === "manual-assign") {
     const card = button.closest("[data-order]");
     const select = card ? card.querySelector("select") : null;
@@ -1585,7 +1776,7 @@ function onClick(event) {
   if (action === "decline") return mutateCourier(button.dataset.id, "decline");
   if (action === "show-category") {
     const next = button.dataset.category;
-    if (next === "su" || next === "market" || next === "restoran") homeCategory = next;
+    if (next === "su" || next === "market" || next === "restoran" || next === "cicekci") homeCategory = next;
     renderHome();
     return;
   }
@@ -1699,6 +1890,8 @@ function onSubmit(event) {
   if (kind === "login-courier-account") return submitCourierAccount(form);
   if (kind === "courier-apply") return submitCourierApplication(form);
   if (kind === "restaurant-apply") return submitRestaurantApplication(form);
+  if (kind === "florist-apply") return submitFloristApplication(form);
+  if (kind === "edit-florist") return submitEditFlorist(form);
   if (kind === "add-courier") return submitAddCourier(form);
   if (kind === "edit-courier") return submitEditCourier(form);
   if (kind === "add-restaurant") return submitRestaurant(form);
@@ -1868,6 +2061,15 @@ function submitCustomer(form) {
     location.href = "restoran.html";
     return;
   }
+  const floristAccount = (state.florists || []).filter(function (item) {
+    return item && normalizeEmail(item.email) === email && item.password === password && item.approved !== false;
+  })[0];
+  if (floristAccount) {
+    state.session = { role: "cicekci", restaurantId: floristAccount.id, name: floristAccount.name, email: email };
+    persist();
+    location.href = "restoran.html";
+    return;
+  }
   const courierAccount = (state.couriers || []).filter(function (item) {
     return item && normalizeEmail(item.email) === email && item.password === password && item.approved !== false;
   })[0];
@@ -1880,6 +2082,8 @@ function submitCustomer(form) {
   const user = state.users.filter(function (item) { return item.email === email && item.password === password; })[0];
   if (!user) {
     const waitingPartner = (state.restaurantApplications || []).some(function (item) {
+      return item && normalizeEmail(item.email) === email && item.status !== "onayli";
+    }) || (state.floristApplications || []).some(function (item) {
       return item && normalizeEmail(item.email) === email && item.status !== "onayli";
     }) || (state.courierApplications || []).some(function (item) {
       return item && normalizeEmail(item.email) === email && item.status !== "onayli";
@@ -2129,6 +2333,135 @@ function approveRestaurantApplication(id) {
   restaurant.name = application.name;
   restaurant.province = application.province;
   restaurant.address = application.address;
+  if (application.photo) restaurant.photo = application.photo;
+}
+
+function submitFloristApplication(form) {
+  const name = form.ad.value.trim();
+  const phone = form.telefon.value.trim();
+  const email = normalizeEmail(form.eposta.value);
+  const password = form.sifre ? String(form.sifre.value || "").trim() : "";
+  const address = form.adres.value.trim();
+  const province = form.il.value;
+  const photoFile = form.resim && form.resim.files ? form.resim.files[0] : null;
+  if (!name || !phone || !email || !password || !address || PROVINCES.indexOf(province) === -1 || !photoFile) {
+    note("#florist-apply-note", "Ad, telefon, e-posta, şifre, adres, şehir ve profil resmi gerekli.", false);
+    return;
+  }
+  if (email === "admin@harbiyemek7.com" || email === "ferah@harbiyemek7.com" || email === "kurye@harbiyemek7.com") {
+    note("#florist-apply-note", "Bu e-posta kullanılamaz.", false);
+    return;
+  }
+  if (!state.floristApplications) state.floristApplications = [];
+  if (!state.florists) state.florists = [];
+  const taken = state.floristApplications.some(function (item) { return normalizeEmail(item.email) === email; })
+    || state.florists.some(function (item) { return item.email && normalizeEmail(item.email) === email; })
+    || (state.restaurantApplications || []).some(function (item) { return normalizeEmail(item.email) === email; })
+    || (state.restaurants || []).some(function (item) { return item.email && normalizeEmail(item.email) === email; });
+  if (taken) {
+    note("#florist-apply-note", "Bu e-posta ile başvuru var.", false);
+    return;
+  }
+  const button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  readImageFile(photoFile).then(function (photo) {
+    if (!photo) {
+      note("#florist-apply-note", "Profil resmi kaydedilemedi.", false);
+      return;
+    }
+    state.floristApplications.push({
+      id: uid("fb"),
+      name: name,
+      phone: phone,
+      email: email,
+      password: password,
+      address: address,
+      province: province,
+      photo: photo,
+      status: "bekliyor"
+    });
+    persist();
+    form.reset();
+    note("#florist-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
+  }).catch(function () {
+    note("#florist-apply-note", "Profil resmi kaydedilemedi.", false);
+  }).then(function () {
+    if (button) button.disabled = false;
+  });
+}
+
+function approveFloristApplication(id) {
+  const application = (state.floristApplications || []).filter(function (item) { return item.id === id; })[0];
+  if (!application || application.status === "onayli") return;
+  application.status = "onayli";
+  if (!state.florists) state.florists = [];
+  let florist = state.florists.filter(function (item) {
+    return item && item.email && normalizeEmail(item.email) === application.email;
+  })[0];
+  if (!florist) {
+    florist = {
+      id: uid("fl"),
+      name: application.name,
+      province: application.province,
+      district: "",
+      address: application.address,
+      iban: "",
+      email: application.email,
+      password: application.password,
+      phone: application.phone,
+      photo: application.photo || "",
+      approved: true,
+      menu: []
+    };
+    state.florists.push(florist);
+  }
+  florist.email = application.email;
+  florist.password = application.password;
+  florist.phone = application.phone;
+  florist.approved = true;
+  florist.name = application.name;
+  florist.province = application.province;
+  florist.address = application.address;
+  if (application.photo) florist.photo = application.photo;
+}
+
+function submitEditFlorist(form) {
+  const id = form.dataset.id || "";
+  const florist = (state.florists || []).filter(function (item) { return item && item.id === id; })[0];
+  if (!florist) return;
+  const name = form.ad.value.trim();
+  const phone = form.telefon.value.trim();
+  const address = form.adres.value.trim();
+  const province = form.il.value;
+  if (!name || !phone || !address || PROVINCES.indexOf(province) === -1) {
+    note("#florist-edit-note-" + id, "Ad, telefon, adres ve şehir gerekli.", false);
+    return;
+  }
+  const button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  const photoFile = form.resim && form.resim.files ? form.resim.files[0] : null;
+  const done = function (photo) {
+    florist.name = name;
+    florist.phone = phone;
+    florist.address = address;
+    florist.province = province;
+    if (photo) florist.photo = photo;
+    persist();
+    renderAdminFlorists();
+    note("#florist-edit-note-" + id, "Profil kaydedildi.", true);
+  };
+  if (!photoFile) {
+    done("");
+    if (button) button.disabled = false;
+    return;
+  }
+  readImageFile(photoFile).then(function (photo) {
+    done(photo);
+  }).catch(function () {
+    note("#florist-edit-note-" + id, "Profil resmi kaydedilemedi.", false);
+  }).then(function () {
+    if (button) button.disabled = false;
+  });
 }
 
 function submitCourierApplication(form) {
@@ -2218,13 +2551,17 @@ function currentRestaurant() {
 function currentSeller() {
   const id = qs("id");
   if (id && hasAdminSession()) return findRestaurant(state, id) || findShop(id);
-  const sessionId = state.session && state.session.role === "restoran" ? state.session.restaurantId : "";
-  if (sessionId) return findRestaurant(state, sessionId);
-  return null;
+  const role = state.session && state.session.role;
+  const sessionId = state.session && state.session.restaurantId ? state.session.restaurantId : "";
+  if (!sessionId) return null;
+  if (role === "restoran") return findRestaurant(state, sessionId);
+  if (role === "cicekci" || role === "su" || role === "market") return findShop(sessionId);
+  return findRestaurant(state, sessionId) || findShop(sessionId);
 }
 
 function sellerKind(seller) {
   if (!seller) return "";
+  if ((state.florists || []).some(function (shop) { return shop.id === seller.id; })) return "cicekci";
   if ((state.markets || []).some(function (shop) { return shop.id === seller.id; })) return "market";
   if ((state.waterBusinesses || []).some(function (shop) { return shop.id === seller.id; })) return "su";
   return "restoran";
@@ -2232,7 +2569,7 @@ function sellerKind(seller) {
 
 function categoriesOf(kind) {
   if (!state.catalogCategories) return [];
-  if (kind !== "restoran" && kind !== "su" && kind !== "market") return null;
+  if (kind !== "restoran" && kind !== "su" && kind !== "market" && kind !== "cicekci") return null;
   return state.catalogCategories[kind] || [];
 }
 
@@ -2259,7 +2596,7 @@ function submitCategory(form) {
 }
 
 function renderCategoryLists() {
-  ["restoran", "su", "market"].forEach(function (kind) {
+  ["restoran", "su", "market", "cicekci"].forEach(function (kind) {
     const root = document.querySelector("#categories-" + kind);
     if (!root) return;
     const list = categoriesOf(kind) || [];
@@ -2661,8 +2998,15 @@ function shopsInCity(list) {
   if (!city) return [];
   return (list || []).filter(function (shop) {
     if (!shop || !String(shop.name || "").trim()) return false;
+    if (shop.approved === false) return false;
     if (shop.province && shop.province !== city) return false;
     return true;
+  });
+}
+
+function visibleFlorists() {
+  return (state.florists || []).filter(function (shop) {
+    return shop && shop.approved !== false && String(shop.name || "").trim();
   });
 }
 
@@ -2688,7 +3032,10 @@ function shopPanelHtml(heading, shops) {
     const list = products.length
       ? '<ul class="menu">' + products.map(function (item) { return productListItem(item, shop, "shop"); }).join("") + "</ul>"
       : '<p class="empty">Henüz ürün yok.</p>';
-    return '<article class="order"><h3>' + esc(shop.name) + "</h3>"
+    const photo = shop.photo
+      ? '<img class="restaurant-thumb" src="' + esc(shop.photo) + '" alt="' + esc(shop.name) + '">'
+      : "";
+    return '<article class="order">' + photo + "<h3>" + esc(shop.name) + "</h3>"
       + (shop.address ? '<p class="meta">' + esc(shop.address) + "</p>" : "")
       + list + "</article>";
   }).join("");
@@ -2713,6 +3060,8 @@ function renderHome() {
       panel.innerHTML = shopPanelHtml("Şehrindeki Su Dağıtım İşletmeleri", shopsInCity(state.waterBusinesses));
     } else if (homeCategory === "market") {
       panel.innerHTML = shopPanelHtml("Şehrindeki market İşletmeleri", shopsInCity(state.markets));
+    } else if (homeCategory === "cicekci") {
+      panel.innerHTML = shopPanelHtml("Şehrindeki Çiçekçiler", shopsInCity(visibleFlorists()));
     } else {
       panel.innerHTML = '<p class="section-note">Şehrindeki Restoranlar</p><p id="empty-restaurants" class="empty" hidden></p><div class="rest-grid" id="restaurants"></div>';
       renderRestaurantList();
@@ -2722,10 +3071,10 @@ function renderHome() {
 }
 
 function fillApplyProvinces() {
-  document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il']").forEach(function (select) {
-    if (select.dataset.ready === "1") return;
+  document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il'], form[data-form='florist-apply'] select[name='il'], form[data-form='edit-florist'] select[name='il']").forEach(function (select) {
+    if (select.dataset.ready === "1" && select.options.length > 1) return;
     select.dataset.ready = "1";
-    const current = select.value;
+    const current = select.value || select.dataset.province || "";
     select.innerHTML = provinceSelectHtml();
     if (current) select.value = current;
   });
@@ -2752,6 +3101,7 @@ function renderAdmin() {
   renderCategoryLists();
   renderPartnerApplications();
   renderAdminRestaurants();
+  renderAdminFlorists();
   const iban = document.querySelector("#commission-iban");
   if (iban && document.activeElement !== iban) iban.value = state.commissionIban || "";
 }
@@ -2777,9 +3127,14 @@ function renderGateways() {
 }
 
 function partnerApplicationCard(item, kind) {
-  const action = kind === "restoran" ? "approve-restaurant-application" : "approve-application";
-  const label = kind === "restoran" ? "Restoran" : "Kurye";
-  return '<article class="order"><h3>' + esc(item.name) + "</h3>"
+  const action = kind === "restoran"
+    ? "approve-restaurant-application"
+    : kind === "cicekci"
+      ? "approve-florist-application"
+      : "approve-application";
+  const label = kind === "restoran" ? "Restoran" : kind === "cicekci" ? "Çiçekçi" : "Kurye";
+  const photo = item.photo ? '<img class="restaurant-thumb" src="' + esc(item.photo) + '" alt="">' : "";
+  return '<article class="order">' + photo + "<h3>" + esc(item.name) + "</h3>"
     + '<p class="meta">' + label + " · " + esc(item.province) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
     + (item.address ? '<p class="meta">' + esc(item.address) + "</p>" : "")
     + '<div class="actions"><button class="btn" type="button" data-action="' + action + '" data-id="' + esc(item.id) + '">Onayla</button></div></article>';
@@ -2789,8 +3144,10 @@ function renderPartnerApplications() {
   const root = document.querySelector("#partner-applications");
   if (!root) return;
   const restaurants = (state.restaurantApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
+  const florists = (state.floristApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
   const couriers = (state.courierApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
   const cards = restaurants.map(function (item) { return partnerApplicationCard(item, "restoran"); })
+    .concat(florists.map(function (item) { return partnerApplicationCard(item, "cicekci"); }))
     .concat(couriers.map(function (item) { return partnerApplicationCard(item, "kurye"); }));
   root.innerHTML = cards.length ? cards.join("") : '<p class="empty">Bekleyen başvuru yok.</p>';
 }
@@ -2809,6 +3166,37 @@ function renderAdminRestaurants() {
       + '<p class="meta">' + esc(restaurant.address) + "</p>"
       + '<p style="margin:12px 0 0"><span class="commission">' + esc(commissionText()) + "</span></p></article>";
   }).join("");
+}
+
+function renderAdminFlorists() {
+  const root = document.querySelector("#admin-florists");
+  if (!root) return;
+  const list = state.florists || [];
+  if (!list.length) {
+    root.innerHTML = '<p class="empty">Henüz çiçekçi yok.</p>';
+    return;
+  }
+  root.innerHTML = list.map(function (florist) {
+    const open = florist.approved === false ? "Kapalı" : (state.provinces[florist.province] ? "Müşteriye açık" : "İl kapalı");
+    const photo = florist.photo
+      ? '<img class="restaurant-thumb" src="' + esc(florist.photo) + '" alt="' + esc(florist.name) + '">'
+      : "";
+    return '<article class="order">' + photo + "<h3>" + esc(florist.name) + "</h3>"
+      + '<p class="meta">' + esc(florist.province) + " · " + esc(florist.phone || "") + " · " + esc(open) + "</p>"
+      + '<p class="meta">' + esc(florist.address || "") + "</p>"
+      + '<div class="actions" style="margin:12px 0">'
+      + '<button class="btn ghost" type="button" data-action="toggle-florist" data-id="' + esc(florist.id) + '">'
+      + (florist.approved === false ? "Aç" : "Kapat") + "</button></div>"
+      + '<form data-form="edit-florist" data-id="' + esc(florist.id) + '">'
+      + '<label class="field">Ad<input name="ad" value="' + esc(florist.name) + '" required></label>'
+      + '<label class="field">Telefon<input name="telefon" value="' + esc(florist.phone || "") + '" required></label>'
+      + '<label class="field">Adres<input name="adres" value="' + esc(florist.address || "") + '" required></label>'
+      + '<label class="field">Şehir<select name="il" data-province="' + esc(florist.province || "") + '" required></select></label>'
+      + '<label class="field">Profil resmi<input name="resim" type="file" accept="image/*"></label>'
+      + '<p id="florist-edit-note-' + esc(florist.id) + '" class="notice" hidden></p>'
+      + '<button class="btn" type="submit">Profili kaydet</button></form></article>';
+  }).join("");
+  fillApplyProvinces();
 }
 
 function renderCity() {

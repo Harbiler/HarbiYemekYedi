@@ -26,7 +26,7 @@
 
   <main class="wrap">
     <h1>İş ortağı ol</h1>
-    <p class="section-note">Restoran ve kurye başvuruları burada kalır. Admin onaylayınca hesap aktif olur ve giriş açılır.</p>
+    <p class="section-note">Restoran, çiçekçi ve kurye başvuruları burada kalır. Admin onaylayınca hesap aktif olur ve giriş açılır.</p>
     <section class="sheet">
       <h2>Restoran başvurusu</h2>
       <p class="section-note">Adresin içine ilçeyi yazın. Onaydan önce restoran listede görünmez.</p>
@@ -38,6 +38,21 @@
         <label class="field">Şifre<input type="password" name="sifre" required></label>
         <label class="field">Adres<input name="adres" required></label>
         <label class="field">Şehir<select name="il" required></select></label>
+        <button class="btn" type="submit">Başvur</button>
+      </form>
+    </section>
+    <section class="sheet">
+      <h2>Çiçekçi başvurusu</h2>
+      <p class="section-note">İşletme profil resmini buradan ekleyin. Onaydan önce çiçekçi listede görünmez.</p>
+      <p id="florist-apply-note" class="notice" hidden></p>
+      <form data-form="florist-apply">
+        <label class="field">Çiçekçi adı<input name="ad" required></label>
+        <label class="field">Telefon<input name="telefon" required></label>
+        <label class="field">E-posta<input type="email" name="eposta" required></label>
+        <label class="field">Şifre<input type="password" name="sifre" required></label>
+        <label class="field">Adres<input name="adres" required></label>
+        <label class="field">Şehir<select name="il" required></select></label>
+        <label class="field">İşletme profil resmi<input name="resim" type="file" accept="image/*" required></label>
         <button class="btn" type="submit">Başvur</button>
       </form>
     </section>
