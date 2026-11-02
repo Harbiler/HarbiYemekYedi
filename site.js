@@ -582,6 +582,8 @@ function normalize(data) {
     if (typeof item.phone !== "string") item.phone = "";
     if (typeof item.address !== "string") item.address = "";
     if (typeof item.province !== "string") item.province = "";
+    if (typeof item.district !== "string") item.district = "";
+    if (item.kind !== "su" && item.kind !== "market" && item.kind !== "cicekci") item.kind = "restoran";
     if (typeof item.id !== "string" || !item.id) item.id = uid("rb");
     if (typeof item.password !== "string") item.password = "";
     if (typeof item.photo !== "string") item.photo = "";
@@ -595,6 +597,7 @@ function normalize(data) {
     if (typeof item.phone !== "string") item.phone = "";
     if (typeof item.address !== "string") item.address = "";
     if (typeof item.province !== "string") item.province = "";
+    if (typeof item.district !== "string") item.district = "";
     if (typeof item.id !== "string" || !item.id) item.id = uid("fb");
     if (typeof item.password !== "string") item.password = "";
     if (typeof item.photo !== "string") item.photo = "";
@@ -605,6 +608,7 @@ function normalize(data) {
   next.courierApplications.forEach(function (item) {
     if (item.status !== "onayli") item.status = "bekliyor";
     if (typeof item.province !== "string") item.province = "";
+    if (typeof item.district !== "string") item.district = "";
     if (typeof item.phone !== "string") item.phone = "";
     if (typeof item.password !== "string") item.password = "";
   });
@@ -1275,7 +1279,7 @@ function render() {
   else if (page === "courier") renderCourier();
   else if (page === "courier-admin") renderCourierAdmin();
   else if (page === "login") renderLogin();
-  else if (page === "partner") fillApplyProvinces();
+  else if (page === "partner") renderPartnerPage();
   paintCartCount();
   paintAccount();
 }
@@ -1861,8 +1865,14 @@ function onChange(event) {
     }
     return;
   }
-  if (!(target instanceof HTMLSelectElement)) return;
-  if (target.name !== "il" || !target.form || target.form.dataset.form !== "signup") return;
+  if (!(target instanceof HTMLSelectElement) || !target.form) return;
+  const formKind = target.form.dataset.form || "";
+  if (target.name === "tur" && formKind === "partner-apply") {
+    syncPartnerPhotoField(target.form);
+    return;
+  }
+  if (target.name !== "il") return;
+  if (formKind !== "signup" && formKind !== "partner-apply" && formKind !== "courier-apply") return;
   fillDistrictOptions(target.form.elements.ilce, target.value);
 }
 
@@ -1889,6 +1899,7 @@ function onSubmit(event) {
   if (kind === "login-courier") return submitCourierLogin(form);
   if (kind === "login-courier-account") return submitCourierAccount(form);
   if (kind === "courier-apply") return submitCourierApplication(form);
+  if (kind === "partner-apply") return submitPartnerApplication(form);
   if (kind === "restaurant-apply") return submitRestaurantApplication(form);
   if (kind === "florist-apply") return submitFloristApplication(form);
   if (kind === "edit-florist") return submitEditFlorist(form);
@@ -2066,6 +2077,24 @@ function submitCustomer(form) {
   })[0];
   if (floristAccount) {
     state.session = { role: "cicekci", restaurantId: floristAccount.id, name: floristAccount.name, email: email };
+    persist();
+    location.href = "restoran.html";
+    return;
+  }
+  const waterAccount = (state.waterBusinesses || []).filter(function (item) {
+    return item && normalizeEmail(item.email) === email && item.password === password && item.approved !== false;
+  })[0];
+  if (waterAccount) {
+    state.session = { role: "su", restaurantId: waterAccount.id, name: waterAccount.name, email: email };
+    persist();
+    location.href = "restoran.html";
+    return;
+  }
+  const marketAccount = (state.markets || []).filter(function (item) {
+    return item && normalizeEmail(item.email) === email && item.password === password && item.approved !== false;
+  })[0];
+  if (marketAccount) {
+    state.session = { role: "market", restaurantId: marketAccount.id, name: marketAccount.name, email: email };
     persist();
     location.href = "restoran.html";
     return;
@@ -2273,47 +2302,179 @@ function submitAddCourier(form) {
   });
 }
 
-function submitRestaurantApplication(form) {
+function partnerKindLabel(kind) {
+  if (kind === "su") return "Su";
+  if (kind === "market") return "Market";
+  if (kind === "cicekci") return "Çiçekçi";
+  return "Restoran";
+}
+
+function syncPartnerPhotoField(form) {
+  if (!form) return;
+  const field = form.querySelector("#partner-photo-field") || document.querySelector("#partner-photo-field");
+  const input = form.resim;
+  if (!field || !input) return;
+  const florist = form.tur && form.tur.value === "cicekci";
+  field.hidden = !florist;
+  input.required = florist;
+  if (!florist) input.value = "";
+}
+
+function partnerEmailTaken(email) {
+  const lists = []
+    .concat(state.restaurantApplications || [])
+    .concat(state.floristApplications || [])
+    .concat(state.restaurants || [])
+    .concat(state.florists || [])
+    .concat(state.waterBusinesses || [])
+    .concat(state.markets || []);
+  return lists.some(function (item) {
+    return item && item.email && normalizeEmail(item.email) === email;
+  });
+}
+
+function addShopAccount(listName, application) {
+  if (!state[listName]) state[listName] = [];
+  let shop = state[listName].filter(function (item) {
+    return item && item.email && normalizeEmail(item.email) === application.email;
+  })[0];
+  if (!shop) {
+    shop = {
+      id: uid("shop"),
+      name: application.name,
+      province: application.province,
+      district: application.district || "",
+      address: application.address,
+      iban: "",
+      email: application.email,
+      password: application.password,
+      phone: application.phone,
+      photo: application.photo || "",
+      approved: true,
+      menu: []
+    };
+    state[listName].push(shop);
+  }
+  shop.email = application.email;
+  shop.password = application.password;
+  shop.phone = application.phone;
+  shop.approved = true;
+  shop.name = application.name;
+  shop.province = application.province;
+  shop.district = application.district || "";
+  shop.address = application.address;
+  if (application.photo) shop.photo = application.photo;
+  return shop;
+}
+
+function submitPartnerApplication(form) {
+  const kind = form.tur ? form.tur.value : "";
   const name = form.ad.value.trim();
   const phone = form.telefon.value.trim();
   const email = normalizeEmail(form.eposta.value);
   const password = form.sifre ? String(form.sifre.value || "").trim() : "";
   const address = form.adres.value.trim();
   const province = form.il.value;
-  if (!name || !phone || !email || !password || !address || PROVINCES.indexOf(province) === -1) {
-    note("#restaurant-apply-note", "Ad, telefon, e-posta, şifre, adres ve şehir gerekli.", false);
+  const district = form.ilce ? form.ilce.value : "";
+  const photoFile = form.resim && form.resim.files ? form.resim.files[0] : null;
+  const noteId = "#partner-apply-note";
+  if (kind !== "restoran" && kind !== "su" && kind !== "market" && kind !== "cicekci") {
+    note(noteId, "İşletme türü seçin.", false);
+    return;
+  }
+  if (!name || !phone || !email || !password || !address || PROVINCES.indexOf(province) === -1 || districtsOf(province).indexOf(district) === -1) {
+    note(noteId, "Ad, telefon, e-posta, şifre, adres, il ve ilçe gerekli.", false);
+    return;
+  }
+  if (kind === "cicekci" && !photoFile) {
+    note(noteId, "Çiçekçi için profil resmi gerekli.", false);
     return;
   }
   if (email === "admin@harbiyemek7.com" || email === "ferah@harbiyemek7.com" || email === "kurye@harbiyemek7.com") {
-    note("#restaurant-apply-note", "Bu e-posta kullanılamaz.", false);
+    note(noteId, "Bu e-posta kullanılamaz.", false);
     return;
   }
-  if (!state.restaurantApplications) state.restaurantApplications = [];
-  const taken = state.restaurantApplications.some(function (item) { return item.email === email; })
-    || state.restaurants.some(function (item) { return item.email && normalizeEmail(item.email) === email; });
-  if (taken) {
-    note("#restaurant-apply-note", "Bu e-posta ile başvuru var.", false);
+  if (partnerEmailTaken(email)) {
+    note(noteId, "Bu e-posta ile başvuru var.", false);
     return;
   }
-  state.restaurantApplications.push({
-    id: uid("rb"),
-    name: name,
-    phone: phone,
-    email: email,
-    password: password,
-    address: address,
-    province: province,
-    status: "bekliyor"
+  const finish = function (photo) {
+    const payload = {
+      id: uid(kind === "cicekci" ? "fb" : "rb"),
+      kind: kind,
+      name: name,
+      phone: phone,
+      email: email,
+      password: password,
+      address: address,
+      province: province,
+      district: district,
+      photo: photo || "",
+      status: "bekliyor"
+    };
+    if (kind === "cicekci") {
+      if (!state.floristApplications) state.floristApplications = [];
+      state.floristApplications.push(payload);
+    } else {
+      if (!state.restaurantApplications) state.restaurantApplications = [];
+      state.restaurantApplications.push(payload);
+    }
+    persist();
+    form.reset();
+    fillDistrictOptions(form.ilce, "");
+    syncPartnerPhotoField(form);
+    note(noteId, "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
+  };
+  if (!photoFile) {
+    finish("");
+    return;
+  }
+  const button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  readImageFile(photoFile).then(function (photo) {
+    if (!photo) {
+      note(noteId, "Profil resmi kaydedilemedi.", false);
+      return;
+    }
+    finish(photo);
+  }).catch(function () {
+    note(noteId, "Profil resmi kaydedilemedi.", false);
+  }).then(function () {
+    if (button) button.disabled = false;
   });
-  persist();
-  form.reset();
-  note("#restaurant-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
+}
+
+function submitRestaurantApplication(form) {
+  if (!form.elements.tur) {
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = "tur";
+    hidden.value = "restoran";
+    form.appendChild(hidden);
+  }
+  if (!form.elements.ilce) {
+    const hiddenDistrict = document.createElement("input");
+    hiddenDistrict.type = "hidden";
+    hiddenDistrict.name = "ilce";
+    hiddenDistrict.value = matchDistrict(form.il.value, form.adres.value) || "";
+    form.appendChild(hiddenDistrict);
+  }
+  return submitPartnerApplication(form);
 }
 
 function approveRestaurantApplication(id) {
   const application = (state.restaurantApplications || []).filter(function (item) { return item.id === id; })[0];
   if (!application || application.status === "onayli") return;
   application.status = "onayli";
+  const kind = application.kind === "su" || application.kind === "market" ? application.kind : "restoran";
+  if (kind === "su") {
+    addShopAccount("waterBusinesses", application);
+    return;
+  }
+  if (kind === "market") {
+    addShopAccount("markets", application);
+    return;
+  }
   let restaurant = state.restaurants.filter(function (item) {
     return item && item.email && normalizeEmail(item.email) === application.email;
   })[0];
@@ -2332,6 +2493,7 @@ function approveRestaurantApplication(id) {
   restaurant.approved = true;
   restaurant.name = application.name;
   restaurant.province = application.province;
+  restaurant.district = application.district || "";
   restaurant.address = application.address;
   if (application.photo) restaurant.photo = application.photo;
 }
@@ -2421,6 +2583,7 @@ function approveFloristApplication(id) {
   florist.approved = true;
   florist.name = application.name;
   florist.province = application.province;
+  florist.district = application.district || "";
   florist.address = application.address;
   if (application.photo) florist.photo = application.photo;
 }
@@ -2470,8 +2633,13 @@ function submitCourierApplication(form) {
   const email = normalizeEmail(form.eposta.value);
   const password = String(form.sifre.value || "").trim();
   const province = form.il.value;
+  const district = form.ilce ? form.ilce.value : "";
   if (!name || !phone || !email || !password || PROVINCES.indexOf(province) === -1) {
     note("#courier-apply-note", "Ad, telefon, e-posta, şifre ve şehir gerekli.", false);
+    return;
+  }
+  if (form.ilce && districtsOf(province).indexOf(district) === -1) {
+    note("#courier-apply-note", "İlçe seçin.", false);
     return;
   }
   if (email === "kurye@harbiyemek7.com" || email === "admin@harbiyemek7.com") {
@@ -2491,10 +2659,12 @@ function submitCourierApplication(form) {
     email: email,
     password: password,
     province: province,
+    district: district,
     status: "bekliyor"
   });
   persist();
   form.reset();
+  fillDistrictOptions(form.ilce, "");
   note("#courier-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
 }
 
@@ -2511,12 +2681,14 @@ function approveCourierApplication(id) {
       email: application.email,
       password: application.password,
       province: application.province,
+      district: application.district || "",
       company: "Harbi Kuryeler",
       approved: true,
       iban: ""
     };
     state.couriers.push(courier);
   }
+  if (application.district) courier.district = application.district;
   courier.approved = true;
   courier.email = application.email;
   courier.province = application.province;
@@ -3071,13 +3243,20 @@ function renderHome() {
 }
 
 function fillApplyProvinces() {
-  document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il'], form[data-form='florist-apply'] select[name='il'], form[data-form='edit-florist'] select[name='il']").forEach(function (select) {
+  document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='partner-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il'], form[data-form='florist-apply'] select[name='il'], form[data-form='edit-florist'] select[name='il']").forEach(function (select) {
     if (select.dataset.ready === "1" && select.options.length > 1) return;
     select.dataset.ready = "1";
     const current = select.value || select.dataset.province || "";
     select.innerHTML = provinceSelectHtml();
     if (current) select.value = current;
+    if (select.form && select.form.elements.ilce) fillDistrictOptions(select.form.elements.ilce, select.value || "");
   });
+}
+
+function renderPartnerPage() {
+  fillApplyProvinces();
+  const form = document.querySelector('[data-form="partner-apply"]');
+  if (form) syncPartnerPhotoField(form);
 }
 
 function switchButton(on, attrs, label) {
@@ -3127,15 +3306,19 @@ function renderGateways() {
 }
 
 function partnerApplicationCard(item, kind) {
-  const action = kind === "restoran"
-    ? "approve-restaurant-application"
-    : kind === "cicekci"
-      ? "approve-florist-application"
-      : "approve-application";
-  const label = kind === "restoran" ? "Restoran" : kind === "cicekci" ? "Çiçekçi" : "Kurye";
+  const resolved = kind === "business"
+    ? (item.kind === "su" || item.kind === "market" || item.kind === "cicekci" ? item.kind : "restoran")
+    : kind;
+  const action = resolved === "cicekci"
+    ? "approve-florist-application"
+    : resolved === "kurye"
+      ? "approve-application"
+      : "approve-restaurant-application";
+  const label = resolved === "kurye" ? "Kurye" : partnerKindLabel(resolved);
+  const place = [item.province, item.district].filter(Boolean).join(" / ");
   const photo = item.photo ? '<img class="restaurant-thumb" src="' + esc(item.photo) + '" alt="">' : "";
   return '<article class="order">' + photo + "<h3>" + esc(item.name) + "</h3>"
-    + '<p class="meta">' + label + " · " + esc(item.province) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
+    + '<p class="meta">' + label + " · " + esc(place) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
     + (item.address ? '<p class="meta">' + esc(item.address) + "</p>" : "")
     + '<div class="actions"><button class="btn" type="button" data-action="' + action + '" data-id="' + esc(item.id) + '">Onayla</button></div></article>';
 }
@@ -3143,10 +3326,10 @@ function partnerApplicationCard(item, kind) {
 function renderPartnerApplications() {
   const root = document.querySelector("#partner-applications");
   if (!root) return;
-  const restaurants = (state.restaurantApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
+  const businesses = (state.restaurantApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
   const florists = (state.floristApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
   const couriers = (state.courierApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
-  const cards = restaurants.map(function (item) { return partnerApplicationCard(item, "restoran"); })
+  const cards = businesses.map(function (item) { return partnerApplicationCard(item, "business"); })
     .concat(florists.map(function (item) { return partnerApplicationCard(item, "cicekci"); }))
     .concat(couriers.map(function (item) { return partnerApplicationCard(item, "kurye"); }));
   root.innerHTML = cards.length ? cards.join("") : '<p class="empty">Bekleyen başvuru yok.</p>';
