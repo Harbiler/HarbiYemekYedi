@@ -480,7 +480,8 @@ function normalize(data) {
     if (typeof item.address !== "string") item.address = "";
     if (typeof item.province !== "string") item.province = "";
     if (typeof item.id !== "string" || !item.id) item.id = uid("rb");
-    if (item.status !== "bekliyor") item.status = "bekliyor";
+    if (typeof item.password !== "string") item.password = "";
+    if (item.status !== "onayli") item.status = "bekliyor";
   });
   if (!Array.isArray(next.courierApplications)) next.courierApplications = [];
   next.courierApplications = next.courierApplications.filter(function (item) { return item && typeof item.email === "string" && typeof item.name === "string"; });
@@ -619,6 +620,7 @@ function openRestaurants(state, query) {
   const q = (query || "").trim().toLocaleLowerCase("tr");
   return state.restaurants.filter(function (restaurant) {
     if (restaurant.province !== city) return false;
+    if (restaurant.approved === false) return false;
     if (!restaurantAcceptsOrders(state, restaurant)) return false;
     if (!q) return true;
     const blob = [restaurant.name, restaurant.cuisine, restaurant.address, restaurant.province].join(" ").toLocaleLowerCase("tr");
@@ -887,7 +889,10 @@ function courierStep(state, orderId, courierId, step) {
   const allowed = (step === "teslim-alindi" && order.status === "hazir")
     || (step === "yolda" && order.status === "teslim-alindi")
     || (step === "teslim" && order.status === "yolda");
-  if (allowed) order.status = step;
+  if (allowed) {
+    order.status = step;
+    if (step === "teslim" && !order.deliveredAt) order.deliveredAt = new Date().toISOString();
+  }
   return order;
 }
 
@@ -951,6 +956,29 @@ function earningTotals(restaurant, kind) {
     commission += money.commission;
   });
   return { gross: gross, commission: commission, net: gross - commission };
+}
+
+function courierDeliveryWhen(order) {
+  const when = new Date(order && (order.deliveredAt || order.createdAt));
+  return isNaN(when.getTime()) ? null : when;
+}
+
+function courierEarningAmount(orders, kind) {
+  const start = periodStart(kind, new Date());
+  let count = 0;
+  (orders || []).forEach(function (order) {
+    if (!order || order.status !== "teslim") return;
+    const when = courierDeliveryWhen(order);
+    if (!when || when < start) return;
+    count += 1;
+  });
+  return count * 99;
+}
+
+function courierEarningRow(period, title, amount) {
+  const open = !!(courierEarningOpen && courierEarningOpen[period]);
+  return '<h2><button class="section-toggle" type="button" data-action="toggle-earning" data-period="' + period + '" aria-expanded="' + (open ? "true" : "false") + '">' + esc(title) + "</button></h2>"
+    + '<p id="courier-earning-' + period + '" class="price courier-earning"' + (open ? "" : " hidden") + ">" + lira(amount) + "</p>";
 }
 
 function earningCard(title, totals) {
@@ -1121,6 +1149,7 @@ function render() {
   else if (page === "courier") renderCourier();
   else if (page === "courier-admin") renderCourierAdmin();
   else if (page === "login") renderLogin();
+  else if (page === "partner") fillApplyProvinces();
   paintCartCount();
   paintAccount();
 }
@@ -1413,7 +1442,14 @@ function onClick(event) {
   if (action === "approve-application") {
     approveCourierApplication(button.dataset.id);
     persist();
-    renderCourierAdmin();
+    if (pageRoot() === "admin") renderAdmin();
+    else renderCourierAdmin();
+    return;
+  }
+  if (action === "approve-restaurant-application") {
+    approveRestaurantApplication(button.dataset.id);
+    persist();
+    renderAdmin();
     return;
   }
   if (action === "manual-assign") {
@@ -1519,6 +1555,15 @@ function onClick(event) {
   if (action === "ready") return mutateRestaurant(button.dataset.id);
   if (action === "deliver") return deliverRestaurant(button.dataset.id);
   if (action === "step") return mutateCourier(button.dataset.id, button.dataset.step);
+  if (action === "toggle-earning") {
+    const period = button.dataset.period;
+    if (period !== "day" && period !== "week" && period !== "month") return;
+    courierEarningOpen[period] = !courierEarningOpen[period];
+    const amount = document.querySelector("#courier-earning-" + period);
+    if (amount) amount.hidden = !courierEarningOpen[period];
+    button.setAttribute("aria-expanded", courierEarningOpen[period] ? "true" : "false");
+    return;
+  }
   if (action === "toggle-delivered") {
     deliveredListOpen = !deliveredListOpen;
     const list = document.querySelector("#delivered-orders");
@@ -1755,9 +1800,32 @@ function submitCustomer(form) {
     location.href = "restoran.html";
     return;
   }
+  const restaurantAccount = (state.restaurants || []).filter(function (item) {
+    return item && normalizeEmail(item.email) === email && item.password === password && item.approved !== false;
+  })[0];
+  if (restaurantAccount) {
+    state.session = { role: "restoran", restaurantId: restaurantAccount.id, name: restaurantAccount.name, email: email };
+    persist();
+    location.href = "restoran.html";
+    return;
+  }
+  const courierAccount = (state.couriers || []).filter(function (item) {
+    return item && normalizeEmail(item.email) === email && item.password === password && item.approved !== false;
+  })[0];
+  if (courierAccount) {
+    state.session = { role: "kurye", courierId: courierAccount.id, name: courierAccount.name, email: email };
+    persist();
+    location.href = "kurye.html";
+    return;
+  }
   const user = state.users.filter(function (item) { return item.email === email && item.password === password; })[0];
   if (!user) {
-    note("#customer-note", "E-posta veya şifre uyuşmadı.", false);
+    const waitingPartner = (state.restaurantApplications || []).some(function (item) {
+      return item && normalizeEmail(item.email) === email && item.status !== "onayli";
+    }) || (state.courierApplications || []).some(function (item) {
+      return item && normalizeEmail(item.email) === email && item.status !== "onayli";
+    });
+    note("#customer-note", waitingPartner ? "Başvurunuz henüz onaylanmadı." : "E-posta veya şifre uyuşmadı.", false);
     return;
   }
   state.session = { role: "musteri", name: user.name, email: user.email };
@@ -1946,25 +2014,62 @@ function submitRestaurantApplication(form) {
   const name = form.ad.value.trim();
   const phone = form.telefon.value.trim();
   const email = normalizeEmail(form.eposta.value);
+  const password = form.sifre ? String(form.sifre.value || "").trim() : "";
   const address = form.adres.value.trim();
   const province = form.il.value;
-  if (!name || !phone || !email || !address || PROVINCES.indexOf(province) === -1) {
-    note("#restaurant-apply-note", "Ad, telefon, e-posta, adres ve şehir gerekli.", false);
+  if (!name || !phone || !email || !password || !address || PROVINCES.indexOf(province) === -1) {
+    note("#restaurant-apply-note", "Ad, telefon, e-posta, şifre, adres ve şehir gerekli.", false);
+    return;
+  }
+  if (email === "admin@harbiyemek7.com" || email === "ferah@harbiyemek7.com" || email === "kurye@harbiyemek7.com") {
+    note("#restaurant-apply-note", "Bu e-posta kullanılamaz.", false);
     return;
   }
   if (!state.restaurantApplications) state.restaurantApplications = [];
+  const taken = state.restaurantApplications.some(function (item) { return item.email === email; })
+    || state.restaurants.some(function (item) { return item.email && normalizeEmail(item.email) === email; });
+  if (taken) {
+    note("#restaurant-apply-note", "Bu e-posta ile başvuru var.", false);
+    return;
+  }
   state.restaurantApplications.push({
     id: uid("rb"),
     name: name,
     phone: phone,
     email: email,
+    password: password,
     address: address,
     province: province,
     status: "bekliyor"
   });
   persist();
   form.reset();
-  note("#restaurant-apply-note", "Başvurunuz alındı.", true);
+  note("#restaurant-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
+}
+
+function approveRestaurantApplication(id) {
+  const application = (state.restaurantApplications || []).filter(function (item) { return item.id === id; })[0];
+  if (!application || application.status === "onayli") return;
+  application.status = "onayli";
+  let restaurant = state.restaurants.filter(function (item) {
+    return item && item.email && normalizeEmail(item.email) === application.email;
+  })[0];
+  if (!restaurant) {
+    restaurant = addRestaurant(state, {
+      province: application.province,
+      name: application.name,
+      cuisine: "Restoran",
+      address: application.address,
+      iban: ""
+    });
+  }
+  restaurant.email = application.email;
+  restaurant.password = application.password;
+  restaurant.phone = application.phone;
+  restaurant.approved = true;
+  restaurant.name = application.name;
+  restaurant.province = application.province;
+  restaurant.address = application.address;
 }
 
 function submitCourierApplication(form) {
@@ -2552,6 +2657,10 @@ function renderHome() {
       renderRestaurantList();
     }
   }
+  fillApplyProvinces();
+}
+
+function fillApplyProvinces() {
   document.querySelectorAll("form[data-form='courier-apply'] select[name='il'], form[data-form='restaurant-apply'] select[name='il']").forEach(function (select) {
     if (select.dataset.ready === "1") return;
     select.dataset.ready = "1";
@@ -2580,6 +2689,7 @@ function renderAdmin() {
   }).join("");
   renderGateways();
   renderCategoryLists();
+  renderPartnerApplications();
   renderAdminRestaurants();
   const iban = document.querySelector("#commission-iban");
   if (iban && document.activeElement !== iban) iban.value = state.commissionIban || "";
@@ -2603,6 +2713,25 @@ function renderGateways() {
   });
   if (group) html += "</div>";
   root.innerHTML = html;
+}
+
+function partnerApplicationCard(item, kind) {
+  const action = kind === "restoran" ? "approve-restaurant-application" : "approve-application";
+  const label = kind === "restoran" ? "Restoran" : "Kurye";
+  return '<article class="order"><h3>' + esc(item.name) + "</h3>"
+    + '<p class="meta">' + label + " · " + esc(item.province) + " · " + esc(item.phone) + " · " + esc(item.email) + "</p>"
+    + (item.address ? '<p class="meta">' + esc(item.address) + "</p>" : "")
+    + '<div class="actions"><button class="btn" type="button" data-action="' + action + '" data-id="' + esc(item.id) + '">Onayla</button></div></article>';
+}
+
+function renderPartnerApplications() {
+  const root = document.querySelector("#partner-applications");
+  if (!root) return;
+  const restaurants = (state.restaurantApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
+  const couriers = (state.courierApplications || []).filter(function (item) { return item && item.status !== "onayli"; });
+  const cards = restaurants.map(function (item) { return partnerApplicationCard(item, "restoran"); })
+    .concat(couriers.map(function (item) { return partnerApplicationCard(item, "kurye"); }));
+  root.innerHTML = cards.length ? cards.join("") : '<p class="empty">Bekleyen başvuru yok.</p>';
 }
 
 function renderAdminRestaurants() {
@@ -3189,6 +3318,11 @@ function renderCourier() {
     + '<form data-form="save-courier-iban"><label class="field">IBAN<input name="iban" autocomplete="off" value="' + esc(courier ? courier.iban : "") + '"></label>'
     + '<p id="courier-iban-note" class="notice" hidden></p>'
     + '<button class="btn" type="submit">Kaydet</button></form></section>'
+    + '<section class="sheet">'
+    + courierEarningRow("day", "Günlük kazanç", courierEarningAmount(delivered, "day"))
+    + courierEarningRow("week", "Haftalık kazanç", courierEarningAmount(delivered, "week"))
+    + courierEarningRow("month", "Aylık kazanç", courierEarningAmount(delivered, "month"))
+    + "</section>"
     + (openOrders.length ? openOrders.map(function (order) { return orderCard(order, "courier"); }).join("") : '<p class="empty">Size atanmış sipariş yok.</p>')
     + '<section class="sheet"><h2><button class="section-toggle" type="button" data-action="toggle-delivered" aria-expanded="' + (deliveredListOpen ? "true" : "false") + '">Teslim edildi</button></h2>'
     + '<div id="delivered-orders"' + (deliveredListOpen ? "" : " hidden") + ">"
@@ -3197,6 +3331,7 @@ function renderCourier() {
 }
 
 var deliveredListOpen = false;
+var courierEarningOpen = { day: false, week: false, month: false };
 
 var courierEditId = "";
 

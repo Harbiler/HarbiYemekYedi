@@ -1123,6 +1123,8 @@ h2 .section-toggle {
   text-align: left;
   cursor: pointer;
 }
+.courier-earning { margin: 0 0 12px; }
+.courier-earning[hidden] { display: none; }
 .skip-reasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .skip-reasons[hidden] { display: none; }
 .line h3 { margin: 0 0 8px; font-size: 1.35rem; }
