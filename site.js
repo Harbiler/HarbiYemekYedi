@@ -137,26 +137,76 @@ function provinceByDistrict(segment) {
 }
 
 function provinceFromAddress(text) {
-  const parts = String(text || "").split(",").map(function (part) { return part.trim(); }).filter(Boolean);
+  return customerPlaceFromAddress(text).province;
+}
+
+function isLuleburgazCustomerAddress(text) {
+  const hay = String(text || "").toLocaleLowerCase("tr");
+  return hay.indexOf("yıldız mahallesi görkem 4") !== -1 || hay.indexOf("yildiz mahallesi gorkem 4") !== -1;
+}
+
+function districtInText(text) {
+  const hay = String(text || "").toLocaleLowerCase("tr");
+  if (!hay) return "";
+  let found = "";
+  let province = "";
+  PROVINCES.forEach(function (name) {
+    (DISTRICTS[name] || []).forEach(function (district) {
+      if (hay.indexOf(district.toLocaleLowerCase("tr")) === -1) return;
+      if (district.length < found.length) return;
+      if (district.length === found.length && province && province !== name) {
+        province = "";
+        return;
+      }
+      found = district;
+      province = name;
+    });
+  });
+  return province ? found : "";
+}
+
+function customerPlaceFromAddress(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return { province: "", district: "" };
+  if (isLuleburgazCustomerAddress(raw)) return { province: "Kırklareli", district: "Lüleburgaz" };
+  const parts = raw.split(",").map(function (part) { return part.trim(); }).filter(Boolean);
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const province = provinceNamed(parts[i]);
-    if (province) return province;
+    if (!province) continue;
+    return { province: province, district: matchDistrict(province, raw) };
   }
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const province = provinceByDistrict(parts[i]);
-    if (province) return province;
+    if (province) return { province: province, district: parts[i] };
   }
-  return "";
+  const district = districtInText(raw);
+  if (!district) return { province: "", district: "" };
+  let province = "";
+  PROVINCES.forEach(function (name) {
+    if ((DISTRICTS[name] || []).indexOf(district) !== -1) province = province ? "" : name;
+  });
+  return { province: province, district: province ? district : "" };
+}
+
+function customerPlace(state) {
+  const fromAddress = customerPlaceFromAddress(state.delivery && state.delivery.address);
+  if (fromAddress.province) return fromAddress;
+  const session = state.session;
+  if (!session || session.role !== "musteri" || !session.email) return { province: "", district: "" };
+  const user = state.users.filter(function (item) { return item.email === session.email; })[0];
+  if (!user || PROVINCES.indexOf(user.province) === -1) return { province: "", district: "" };
+  const district = districtsOf(user.province).indexOf(user.district) !== -1 ? user.district : "";
+  return { province: user.province, district: district };
 }
 
 function customerProvince(state) {
-  const fromAddress = provinceFromAddress(state.delivery && state.delivery.address);
-  if (fromAddress) return fromAddress;
-  const session = state.session;
-  if (!session || session.role !== "musteri" || !session.email) return "";
-  const user = state.users.filter(function (item) { return item.email === session.email; })[0];
-  if (user && PROVINCES.indexOf(user.province) !== -1) return user.province;
-  return "";
+  return customerPlace(state).province;
+}
+
+function restaurantDistrictName(restaurant) {
+  if (!restaurant) return "";
+  if (restaurant.district && districtsOf(restaurant.province).indexOf(restaurant.district) !== -1) return restaurant.district;
+  return matchDistrict(restaurant.province, restaurant.address || "");
 }
 
 function matchDistrict(province, text) {
@@ -417,12 +467,20 @@ function ensureCustomerAccount(users) {
 }
 
 function ensureFerahRestaurant(restaurants) {
-  const exists = restaurants.some(function (restaurant) {
-    if (!restaurant) return false;
-    if (restaurant.id === "r-ferah") return true;
-    return String(restaurant.name || "").trim().toLocaleLowerCase("tr") === "ferah lahmacun";
-  });
-  if (!exists) restaurants.push(ferahRestaurant());
+  const restaurant = restaurants.filter(function (item) {
+    if (!item) return false;
+    if (item.id === "r-ferah") return true;
+    return String(item.name || "").trim().toLocaleLowerCase("tr") === "ferah lahmacun";
+  })[0];
+  if (!restaurant) {
+    restaurants.push(ferahRestaurant());
+    return;
+  }
+  restaurant.province = "Kırklareli";
+  restaurant.district = "Lüleburgaz";
+  if (matchDistrict("Kırklareli", restaurant.address || "") !== "Lüleburgaz") {
+    restaurant.address = "Cumhuriyet Mah. Lüleburgaz";
+  }
 }
 
 function normalize(data) {
@@ -615,12 +673,13 @@ function save(state) {
 }
 
 function openRestaurants(state, query) {
-  const city = customerProvince(state);
-  if (!city) return [];
+  const place = customerPlace(state);
+  if (!place.province) return [];
   const q = (query || "").trim().toLocaleLowerCase("tr");
   return state.restaurants.filter(function (restaurant) {
-    if (restaurant.province !== city) return false;
+    if (restaurant.province !== place.province) return false;
     if (restaurant.approved === false) return false;
+    if (place.district && restaurantDistrictName(restaurant) !== place.district) return false;
     if (!restaurantAcceptsOrders(state, restaurant)) return false;
     if (!q) return true;
     const blob = [restaurant.name, restaurant.cuisine, restaurant.address, restaurant.province].join(" ").toLocaleLowerCase("tr");
@@ -2540,13 +2599,14 @@ function deliverRestaurant(orderId) {
 
 function restaurantCard(restaurant) {
   const onHome = document.body && document.body.dataset.page === "home";
-  const eta = restaurant.eta ? esc(restaurant.eta) + (onHome ? " 24.99 TL" : "") : "";
+  const eta = restaurant.eta ? esc(restaurant.eta) + (onHome ? " 24.99 TL Teslimat" : "") : "";
+  const deliveryText = onHome && deliveryModeOf(restaurant) !== "kendi" ? "Avantajlı Teslimat" : deliveryLabel(deliveryModeOf(restaurant));
   return '<a class="rest" href="menu.html?id=' + encodeURIComponent(restaurant.id) + '">'
     + '<div class="photo"><img src="' + esc(photoFor(restaurant)) + '" alt="' + esc(restaurant.name + ", " + restaurant.cuisine) + '"></div>'
     + '<div class="body"><h3>' + esc(restaurant.name) + "</h3>"
     + (onHome ? "" : '<p class="meta">' + esc(restaurant.cuisine) + " · " + esc(restaurant.address) + "</p>")
-    + '<p class="meta">' + esc(deliveryLabel(deliveryModeOf(restaurant))) + "</p>"
-    + '<p class="meta">' + esc(restaurant.province) + (eta ? " · " + eta : "") + (restaurant.min ? " · Min. " + lira(restaurant.min) : "") + "</p>"
+    + '<p class="meta">' + esc(deliveryText) + "</p>"
+    + '<p class="meta">' + esc(onHome ? (restaurantDistrictName(restaurant) || restaurant.province) : restaurant.province) + (eta ? " · " + eta : "") + (restaurant.min ? " · Min. " + lira(restaurant.min) : "") + "</p>"
     + "</div></a>";
 }
 
@@ -2560,7 +2620,8 @@ function renderRestaurantList() {
     grid.innerHTML = "";
     if (empty) {
       empty.hidden = false;
-      const city = customerProvince(state);
+      const place = customerPlace(state);
+      const city = place.district || place.province;
       empty.textContent = city
         ? (query ? "Bu aramaya uygun restoran yok." : "Şu an " + city + " içinde siparişe açık restoran yok.")
         : "Adres seçin veya üye olun. Restoranlar şehrinize göre listelenir.";
