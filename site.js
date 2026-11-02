@@ -3746,8 +3746,6 @@ function switchButton(on, attrs, label) {
 }
 
 function renderAdmin() {
-  const list = document.querySelector("#provinces");
-  if (!list) return;
   if (!hasAdminSession()) {
     location.replace("giris.html");
     return;
@@ -3764,12 +3762,7 @@ function renderAdmin() {
   }
   const sorumlularSection = document.querySelector("#admin-section-sorumlular");
   if (sorumlularSection) sorumlularSection.hidden = !isFullAdmin();
-  list.innerHTML = PROVINCES.map(function (name) {
-    const on = !!state.provinces[name];
-    return '<div class="province-row"><a href="il.html?il=' + encodeURIComponent(name) + '">' + esc(name) + "</a>"
-      + switchButton(on, 'data-action="toggle-province" data-province="' + esc(name) + '"', name + (on ? " açık" : " kapalı"))
-      + "</div>";
-  }).join("");
+  renderProvinces();
   renderGateways();
   renderCategoryLists();
   renderPartnerApplications();
@@ -3789,6 +3782,17 @@ function renderAdminAccounting() {
   root.innerHTML = earningCard("Günlük komisyon", platformEarningTotals("day"))
     + earningCard("Haftalık komisyon", platformEarningTotals("week"))
     + earningCard("Aylık komisyon", platformEarningTotals("month"));
+}
+
+function renderProvinces() {
+  const list = document.querySelector("#provinces");
+  if (!list) return;
+  list.innerHTML = PROVINCES.map(function (name) {
+    const on = !!state.provinces[name];
+    return '<div class="province-row"><a href="il.html?il=' + encodeURIComponent(name) + '">' + esc(name) + "</a>"
+      + switchButton(on, 'data-action="toggle-province" data-province="' + esc(name) + '"', name + (on ? " açık" : " kapalı"))
+      + "</div>";
+  }).join("");
 }
 
 function renderGateways() {
