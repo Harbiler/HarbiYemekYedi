@@ -3183,7 +3183,7 @@ function restaurantCard(restaurant) {
     + '<div class="body"><h3>' + esc(restaurant.name) + "</h3>"
     + (onHome ? "" : '<p class="meta">' + esc(restaurant.cuisine) + " · " + esc(restaurant.address) + "</p>")
     + '<p class="meta">' + esc(deliveryText) + "</p>"
-    + '<p class="meta">' + esc(onHome ? (restaurantDistrictName(restaurant) || restaurant.province) : restaurant.province) + (eta ? " · " + eta : "") + (restaurant.min ? " · Min. " + lira(restaurant.min) : "") + "</p>"
+    + '<p class="meta">' + esc(onHome ? (restaurantDistrictName(restaurant) || restaurant.province) : restaurant.province) + (eta ? " · " + eta : "") + (!onHome && restaurant.min ? " · Min. " + lira(restaurant.min) : "") + "</p>"
     + "</div></a>";
 }
 
