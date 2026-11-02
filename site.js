@@ -467,6 +467,8 @@ function normalize(data) {
     if (typeof courier.criminalRecord !== "string") courier.criminalRecord = "";
     if (typeof courier.district !== "string") courier.district = "";
     if (typeof courier.iban !== "string") courier.iban = "";
+    if (typeof courier.skipUntil !== "number" || !isFinite(courier.skipUntil)) courier.skipUntil = 0;
+    if (courier.skipReason !== "Hastayım" && courier.skipReason !== "Kaza yaptım") courier.skipReason = "";
   });
   ensureDemoLuleburgazCourier(next.couriers);
   if (!Array.isArray(next.restaurantApplications)) next.restaurantApplications = [];
@@ -695,6 +697,10 @@ function courierServesLuleburgaz(courier) {
   return courier.province === "Kırklareli";
 }
 
+function courierIsPaused(courier, now) {
+  return !!(courier && Number(courier.skipUntil) > (now || Date.now()));
+}
+
 function assignCourier(state, order) {
   const place = orderPlace(state, order);
   const luleburgaz = isLuleburgazPlace(place);
@@ -717,7 +723,7 @@ function assignCourier(state, order) {
   for (let step = 0; step < pool.length; step += 1) {
     const index = (start + step) % pool.length;
     const courier = pool[index];
-    if (!declined[courier.id]) {
+    if (!declined[courier.id] && !courierIsPaused(courier)) {
       order.courierId = courier.id;
       order.status = "atandi";
       state.courierTurn = (index + 1) % pool.length;
@@ -736,7 +742,7 @@ function assignCourierManual(state, orderId, courierId) {
   if (!order || !courier || order.deliveryMode === "kendi") return null;
   if (!isLuleburgazPlace(orderPlace(state, order))) return null;
   if (order.status !== "bekliyor" && order.status !== "atandi") return null;
-  if (!courierServesLuleburgaz(courier)) return null;
+  if (courierIsPaused(courier) || !courierServesLuleburgaz(courier)) return null;
   order.courierId = courier.id;
   order.status = "atandi";
   return courier;
@@ -826,6 +832,21 @@ function declineOrder(state, orderId, courierId) {
   return order;
 }
 
+function skipCourierOrder(state, orderId, courierId, reason) {
+  const order = findOrder(state, orderId);
+  const courier = findCourier(state, courierId);
+  if (!order || !courier || order.courierId !== courierId) return order;
+  if (order.status === "teslim" || order.status === "iptal") return order;
+  if (reason !== "Hastayım" && reason !== "Kaza yaptım") return order;
+  courier.skipUntil = Date.now() + 30 * 60 * 1000;
+  courier.skipReason = reason;
+  order.declinedBy = order.declinedBy || [];
+  if (order.declinedBy.indexOf(courierId) === -1) order.declinedBy.push(courierId);
+  order.courierId = null;
+  assignCourier(state, order);
+  return order;
+}
+
 function pickCourier(state, order) {
   const place = orderPlace(state, order);
   const pool = isLuleburgazPlace(place)
@@ -833,7 +854,7 @@ function pickCourier(state, order) {
     : couriersInCity(state, place.province || order.province);
   const declined = {};
   (order.declinedBy || []).forEach(function (id) { declined[id] = true; });
-  const available = pool.filter(function (courier) { return !declined[courier.id]; });
+  const available = pool.filter(function (courier) { return !declined[courier.id] && !courierIsPaused(courier); });
   if (!available.length) return null;
   const start = ((state.courierTurn % available.length) + available.length) % available.length;
   const courier = available[start];
@@ -1498,6 +1519,26 @@ function onClick(event) {
   if (action === "ready") return mutateRestaurant(button.dataset.id);
   if (action === "deliver") return deliverRestaurant(button.dataset.id);
   if (action === "step") return mutateCourier(button.dataset.id, button.dataset.step);
+  if (action === "toggle-delivered") {
+    deliveredListOpen = !deliveredListOpen;
+    const list = document.querySelector("#delivered-orders");
+    if (list) list.hidden = !deliveredListOpen;
+    button.setAttribute("aria-expanded", deliveredListOpen ? "true" : "false");
+    return;
+  }
+  if (action === "show-skip") {
+    const card = button.closest(".order");
+    const box = card ? card.querySelector(".skip-reasons") : null;
+    if (box) box.hidden = !box.hidden;
+    return;
+  }
+  if (action === "skip-order") {
+    const courierId = state.session && state.session.role === "kurye" ? state.session.courierId : "";
+    skipCourierOrder(state, button.dataset.id, courierId, button.dataset.reason);
+    persist();
+    renderCourier();
+    return;
+  }
   if (action === "toggle-password") return togglePassword(button);
   if (action === "forgot-password") {
     const box = document.querySelector("#forgot-box");
@@ -2354,6 +2395,10 @@ function mutateCourier(orderId, step) {
   else courierStep(state, orderId, courierId, step);
   persist();
   renderCourier();
+  if (step === "yolda") {
+    const order = findOrder(state, orderId);
+    if (order && order.status === "yolda") location.href = googleMapsHref(orderCustomerPlace(order));
+  }
 }
 
 function mutateRestaurant(orderId) {
@@ -2877,9 +2922,14 @@ function goMapHtml(title, address, province) {
     + "</section>";
 }
 
+function googleMapsHref(address) {
+  const place = address || "Yıldız Mahallesi Görkem 4. Ara Sokak No 26";
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(place);
+}
+
 function customerMapLink(address) {
   const place = address || "Yıldız Mahallesi Görkem 4. Ara Sokak No 26";
-  const href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(place);
+  const href = googleMapsHref(place);
   return '<a class="map-symbol" href="' + esc(href) + '" aria-label="Müşteriye Git">'
     + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.2A7.2 7.2 0 0 0 4.8 9.4c0 5.2 6.2 11.6 6.7 12.1a.7.7 0 0 0 1 0c.5-.5 6.7-6.9 6.7-12.1A7.2 7.2 0 0 0 12 2.2Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="9.2" r="2.3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>'
     + "<span>Müşteriye Git</span></a>"
@@ -2913,19 +2963,29 @@ function orderCard(order, mode) {
     buttons += '<button class="btn ghost" type="button" data-action="cancel-order" data-id="' + esc(order.id) + '">İptal et</button>';
     actions = '<div class="actions">' + buttons + "</div>";
   }
-  if (mode === "courier") {
+  if (mode === "courier" && order.status !== "teslim") {
+    const skip = '<button class="btn ghost" type="button" data-action="show-skip" data-id="' + esc(order.id) + '">Sektir</button>'
+      + '<div class="skip-reasons" hidden>'
+      + '<button class="btn ghost" type="button" data-action="skip-order" data-id="' + esc(order.id) + '" data-reason="Hastayım">Hastayım</button>'
+      + '<button class="btn ghost" type="button" data-action="skip-order" data-id="' + esc(order.id) + '" data-reason="Kaza yaptım">Kaza yaptım</button>'
+      + "</div>";
     if (order.status === "atandi") {
       actions = '<div class="actions"><button class="btn" type="button" data-action="accept" data-id="' + esc(order.id) + '">Kabul et</button>'
-        + '<button class="btn ghost" type="button" data-action="decline" data-id="' + esc(order.id) + '">Reddet</button></div>';
+        + '<button class="btn ghost" type="button" data-action="decline" data-id="' + esc(order.id) + '">Reddet</button>'
+        + skip + "</div>";
     } else {
       actions = '<div class="actions">'
         + stepButton(order, "teslim-alindi", "Teslim aldım")
         + stepButton(order, "yolda", "Yola çıktım")
         + stepButton(order, "teslim", "Teslim ettim")
+        + skip
         + "</div>";
     }
   }
-  const payer = mode === "restaurant" ? orderCustomerName(order) : order.address;
+  const pickedUp = order.status === "teslim-alindi" || order.status === "yolda" || order.status === "teslim";
+  const payer = mode === "restaurant"
+    ? orderCustomerName(order)
+    : (mode === "courier" && pickedUp ? (orderCustomerPlace(order) || order.address) : order.address);
   return '<article class="order"><h3>' + esc(order.restaurantName) + "</h3>"
     + "<p>" + esc(statusText(order)) + "</p>"
     + lines
@@ -3120,6 +3180,8 @@ function renderCourier() {
   const mine = state.orders.filter(function (order) {
     return order.courierId === session.courierId && order.status !== "bekliyor" && order.province === city;
   });
+  const openOrders = mine.filter(function (order) { return order.status !== "teslim"; });
+  const delivered = mine.filter(function (order) { return order.status === "teslim"; });
   root.innerHTML = '<p class="eyebrow">Harbi Kuryeler</p><h1>' + esc(courier ? courier.name : "Kurye") + "</h1>"
     + '<p class="section-note">' + esc(courier ? courier.phone : "") + (city ? " · " + esc(city) : "") + "</p>"
     + '<p class="section-note">Yalnızca ' + esc(city || "bulunduğunuz şehir") + " siparişleri gelir.</p>"
@@ -3127,8 +3189,14 @@ function renderCourier() {
     + '<form data-form="save-courier-iban"><label class="field">IBAN<input name="iban" autocomplete="off" value="' + esc(courier ? courier.iban : "") + '"></label>'
     + '<p id="courier-iban-note" class="notice" hidden></p>'
     + '<button class="btn" type="submit">Kaydet</button></form></section>'
-    + (mine.length ? mine.map(function (order) { return orderCard(order, "courier"); }).join("") : '<p class="empty">Size atanmış sipariş yok.</p>');
+    + (openOrders.length ? openOrders.map(function (order) { return orderCard(order, "courier"); }).join("") : '<p class="empty">Size atanmış sipariş yok.</p>')
+    + '<section class="sheet"><h2><button class="section-toggle" type="button" data-action="toggle-delivered" aria-expanded="' + (deliveredListOpen ? "true" : "false") + '">Teslim edildi</button></h2>'
+    + '<div id="delivered-orders"' + (deliveredListOpen ? "" : " hidden") + ">"
+    + (delivered.length ? delivered.map(function (order) { return orderCard(order, "courier"); }).join("") : '<p class="empty">Teslim edilen sipariş yok.</p>')
+    + "</div></section>";
 }
+
+var deliveredListOpen = false;
 
 var courierEditId = "";
 

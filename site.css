@@ -1112,6 +1112,19 @@ a.rest:focus-visible { outline: 2px solid var(--chili); outline-offset: 3px; }
   text-decoration: none;
 }
 .map-symbol svg { width: 36px; height: 36px; flex: none; }
+h2 .section-toggle {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.skip-reasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.skip-reasons[hidden] { display: none; }
 .line h3 { margin: 0 0 8px; font-size: 1.35rem; }
 .line .item-title { margin: 0; }
 .line .item-title h3,
