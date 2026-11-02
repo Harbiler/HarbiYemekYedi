@@ -2,6 +2,8 @@
 
 const KEY = "harbi-yemek-7";
 const COMMISSION = 0.05;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_SIZE_MESSAGE = "Resim en fazla 5 MB olabilir.";
 // Google Cloud Places anahtarı isteğe bağlı. Asıl öneriler /api/google-address ile Google Haritalar'dan gelir.
 const GOOGLE_MAPS_KEY = "";
 
@@ -543,10 +545,56 @@ function stripLegacyDemoRestaurants(restaurants) {
   return restaurants.filter(function (item) { return !isLegacyDemoRestaurant(item); });
 }
 
+function isImageUploadFile(file) {
+  if (!file || !file.size) return false;
+  const type = String(file.type || "").toLowerCase();
+  if (type.indexOf("image/") === 0) return true;
+  const name = String(file.name || "").toLowerCase();
+  return /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/.test(name);
+}
+
+function imageFileTooLarge(file) {
+  return !!(file && file.size > MAX_IMAGE_BYTES);
+}
+
+function validateImageUploadFile(file) {
+  if (!file || !file.size) return "";
+  if (!isImageUploadFile(file)) return "";
+  if (imageFileTooLarge(file)) return MAX_IMAGE_SIZE_MESSAGE;
+  return "";
+}
+
+function noteSelectorForForm(form) {
+  if (!form) return "";
+  const inForm = form.querySelector("p.notice[id]");
+  if (inForm && inForm.id) return "#" + inForm.id;
+  let node = form.previousElementSibling;
+  while (node) {
+    if (node.matches && node.matches("p.notice[id]") && node.id) return "#" + node.id;
+    node = node.previousElementSibling;
+  }
+  const panel = form.closest(".partner-apply-panel, .sheet, section");
+  if (panel) {
+    const sibling = panel.querySelector("p.notice[id]");
+    if (sibling && sibling.id) return "#" + sibling.id;
+  }
+  return "";
+}
+
+function imageUploadErrorText(err, fallback) {
+  if (err && err.message === MAX_IMAGE_SIZE_MESSAGE) return MAX_IMAGE_SIZE_MESSAGE;
+  return fallback;
+}
+
 function readDataFile(file) {
   return new Promise(function (resolve, reject) {
     if (!file || !file.size) {
       resolve("");
+      return;
+    }
+    const sizeError = validateImageUploadFile(file);
+    if (sizeError) {
+      reject(new Error(sizeError));
       return;
     }
     const reader = new FileReader();
@@ -560,6 +608,11 @@ function readImageFile(file) {
   return new Promise(function (resolve, reject) {
     if (!file) {
       resolve("");
+      return;
+    }
+    const sizeError = validateImageUploadFile(file);
+    if (sizeError) {
+      reject(new Error(sizeError));
       return;
     }
     const reader = new FileReader();
@@ -2341,6 +2394,16 @@ function onClick(event) {
 
 function onChange(event) {
   const target = event.target;
+  if (target instanceof HTMLInputElement && target.type === "file") {
+    const file = target.files && target.files[0];
+    const sizeError = validateImageUploadFile(file);
+    if (sizeError) {
+      target.value = "";
+      const noteSel = noteSelectorForForm(target.form);
+      if (noteSel) note(noteSel, sizeError, false);
+    }
+    return;
+  }
   if (target instanceof HTMLInputElement && target.name === "deliveryMode") {
     const seller = currentSeller();
     const mode = target.value === "kendi" || target.value === "harbi" ? target.value : "";
@@ -2911,8 +2974,8 @@ function submitAddCourier(form) {
     persist();
     renderCourierPanels();
     note("#add-courier-note", "Kurye eklendi.", true);
-  }).catch(function () {
-    note("#add-courier-note", "Dosya kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#add-courier-note", imageUploadErrorText(err, "Dosya kaydedilemedi."), false);
   }).then(function () {
     const again = document.querySelector('[data-form="add-courier"] [type="submit"]');
     if (again) again.disabled = false;
@@ -3054,8 +3117,8 @@ function submitPartnerApplication(form) {
       return;
     }
     finish(photo);
-  }).catch(function () {
-    note(noteId, "Profil resmi kaydedilemedi.", false);
+  }).catch(function (err) {
+    note(noteId, imageUploadErrorText(err, "Profil resmi kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
@@ -3162,8 +3225,8 @@ function submitFloristApplication(form) {
     persist();
     form.reset();
     note("#florist-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
-  }).catch(function () {
-    note("#florist-apply-note", "Profil resmi kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#florist-apply-note", imageUploadErrorText(err, "Profil resmi kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
@@ -3239,8 +3302,8 @@ function submitEditRestaurant(form) {
   }
   readImageFile(photoFile).then(function (photo) {
     done(photo);
-  }).catch(function () {
-    note("#restaurant-edit-note-" + id, "Profil resmi kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#restaurant-edit-note-" + id, imageUploadErrorText(err, "Profil resmi kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
@@ -3278,8 +3341,8 @@ function submitEditFlorist(form) {
   }
   readImageFile(photoFile).then(function (photo) {
     done(photo);
-  }).catch(function () {
-    note("#florist-edit-note-" + id, "Profil resmi kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#florist-edit-note-" + id, imageUploadErrorText(err, "Profil resmi kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
@@ -3331,8 +3394,8 @@ function submitCourierApplication(form) {
     form.reset();
     if (form.ilce) fillDistrictOptions(form.ilce, "");
     note("#courier-apply-note", "Başvurunuz alındı. Onaydan sonra giriş yapabilirsiniz.", true);
-  }).catch(function () {
-    note("#courier-apply-note", "Profil resmi kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#courier-apply-note", imageUploadErrorText(err, "Profil resmi kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
@@ -3764,8 +3827,8 @@ function submitMenuItem(form) {
     form.reset();
     note("#menu-note", "Ürün eklendi.", true);
     renderRestaurant();
-  }).catch(function () {
-    note("#menu-note", "Resim kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#menu-note", imageUploadErrorText(err, "Resim kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
@@ -3916,8 +3979,8 @@ function submitDistrictRestaurant(form) {
     if (toggle) toggle.setAttribute("aria-expanded", "false");
     const savedNote = document.querySelector("#district-restaurant-note");
     if (savedNote) savedNote.hidden = true;
-  }).catch(function () {
-    note("#district-restaurant-note", "Resim kaydedilemedi.", false);
+  }).catch(function (err) {
+    note("#district-restaurant-note", imageUploadErrorText(err, "Resim kaydedilemedi."), false);
   }).then(function () {
     if (button) button.disabled = false;
   });
