@@ -1,5 +1,9 @@
 "use strict";
 
+if (location.protocol === "http:" && /harbiyemek7\.com$/i.test(location.hostname)) {
+  location.replace("https://" + location.host + location.pathname + location.search + location.hash);
+}
+
 const KEY = "harbi-yemek-7";
 const COMMISSION = 0.05;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
