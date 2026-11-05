@@ -348,7 +348,9 @@ function blankState() {
     adminManualAssignmentCities: [{ province: "Kırklareli", district: "Lüleburgaz" }],
     courierTurn: 0,
     session: null,
-    delivery: { address: "", floor: "", apartment: "" },
+    delivery: { address: "", buildingNo: "", floor: "", apartment: "" },
+    integrations: { googleAds: { enabled: false, publisherId: "", clientId: "", defaultAdSlot: "", slotIds: [] } },
+    homeAdSlots: [],
     rememberEmail: "",
     commissionIban: "",
     districts: {},
@@ -390,6 +392,43 @@ function normalizeSepetTakipIntegration(raw) {
 function normalizeCourierIntegrations(raw) {
   const bag = raw && typeof raw === "object" ? raw : {};
   return { sepetTakip: normalizeSepetTakipIntegration(bag.sepetTakip) };
+}
+
+function normalizeGoogleAds(raw) {
+  const bag = raw && typeof raw === "object" ? raw : {};
+  const slots = Array.isArray(bag.slotIds) ? bag.slotIds : [];
+  const slotIds = [];
+  for (let i = 0; i < 25; i += 1) {
+    slotIds.push(typeof slots[i] === "string" ? slots[i] : "");
+  }
+  return {
+    enabled: bag.enabled === true,
+    publisherId: typeof bag.publisherId === "string" ? bag.publisherId : "",
+    clientId: typeof bag.clientId === "string" ? bag.clientId : "",
+    defaultAdSlot: typeof bag.defaultAdSlot === "string" ? bag.defaultAdSlot : "",
+    slotIds: slotIds
+  };
+}
+
+function normalizeHomeAdSlots(list) {
+  const out = [];
+  const source = Array.isArray(list) ? list : [];
+  for (let i = 0; i < 25; i += 1) {
+    const item = source[i] && typeof source[i] === "object" ? source[i] : {};
+    out.push({
+      mode: item.mode === "custom" ? "custom" : "demo",
+      title: typeof item.title === "string" ? item.title : "",
+      subtitle: typeof item.subtitle === "string" ? item.subtitle : "",
+      href: typeof item.href === "string" ? item.href : "",
+      image: typeof item.image === "string" ? item.image : ""
+    });
+  }
+  return out;
+}
+
+function normalizeIntegrations(raw) {
+  const bag = raw && typeof raw === "object" ? raw : {};
+  return { googleAds: normalizeGoogleAds(bag.googleAds) };
 }
 
 function normalizeRestaurantIntegrations(raw) {
@@ -517,7 +556,7 @@ function pushOrderToSepetTakip(state, order, restaurant) {
   }).then(function (result) {
     persist();
     if (pageRoot() === "restaurant") renderRestaurant();
-    if (pageRoot() === "admin") renderAdminCourierIntegrations();
+    if (pageRoot() === "admin") renderAdminEntegrasyonlar();
     return result;
   });
 }
@@ -825,10 +864,13 @@ function normalize(data) {
   next.assignmentDefaults = normalizeAssignmentDefaults(next.assignmentDefaults);
   next.adminManualAssignmentCities = normalizeAdminManualCities(next.adminManualAssignmentCities);
   if (typeof next.courierTurn !== "number") next.courierTurn = 0;
-  if (!next.delivery || typeof next.delivery !== "object") next.delivery = { address: "", floor: "", apartment: "" };
+  if (!next.delivery || typeof next.delivery !== "object") next.delivery = { address: "", buildingNo: "", floor: "", apartment: "" };
   if (typeof next.delivery.address !== "string") next.delivery.address = "";
+  if (typeof next.delivery.buildingNo !== "string") next.delivery.buildingNo = "";
   if (typeof next.delivery.floor !== "string") next.delivery.floor = "";
   if (typeof next.delivery.apartment !== "string") next.delivery.apartment = "";
+  next.integrations = normalizeIntegrations(next.integrations);
+  next.homeAdSlots = normalizeHomeAdSlots(next.homeAdSlots);
   if (typeof next.rememberEmail !== "string") next.rememberEmail = "";
   if (typeof next.commissionIban !== "string") next.commissionIban = "";
   if (!Array.isArray(next.cart)) next.cart = [];
@@ -1569,7 +1611,125 @@ function pageRoot() {
 
 let state = null;
 
+const ORDER_NOTIFY_SOUND_KEY = "harbiBildirimSesi";
+const AUTO_LOCATE_KEY = "harbiAutoLocateOnce";
+let orderNotifyBaseline = null;
+let notifyAudioContext = null;
+let notifyAudioUnlocked = false;
+let adsenseScriptPromise = null;
+
+function isOrderNotifySoundEnabled() {
+  try {
+    const value = localStorage.getItem(ORDER_NOTIFY_SOUND_KEY);
+    if (value === "0" || value === "kapali" || value === "off" || value === "false") return false;
+  } catch (err) {}
+  return true;
+}
+
+function setOrderNotifySoundEnabled(on) {
+  try {
+    localStorage.setItem(ORDER_NOTIFY_SOUND_KEY, on ? "1" : "0");
+  } catch (err) {}
+}
+
+function orderSnapshotForNotify(st) {
+  const map = {};
+  (st.orders || []).forEach(function (order) {
+    if (!order || !order.id) return;
+    map[order.id] = {
+      status: order.status,
+      courierId: order.courierId || "",
+      restaurantId: order.restaurantId || ""
+    };
+  });
+  return map;
+}
+
+function resetOrderNotifyBaseline() {
+  orderNotifyBaseline = orderSnapshotForNotify(state);
+}
+
+function playOrderNotifySound() {
+  if (!isOrderNotifySoundEnabled()) return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!notifyAudioContext) notifyAudioContext = new AudioCtx();
+    const ctx = notifyAudioContext;
+    const run = function () {
+      const freqs = [880, 1174.66, 880];
+      let t = ctx.currentTime;
+      freqs.forEach(function (freq) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.value = freq;
+        gain.gain.value = 1.0;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.18);
+        t += 0.2;
+      });
+    };
+    if (ctx.state === "suspended") ctx.resume().then(run).catch(function () {});
+    else run();
+  } catch (err) {}
+}
+
+function unlockNotifyAudio() {
+  if (notifyAudioUnlocked) return;
+  const unlock = function () {
+    notifyAudioUnlocked = true;
+    try {
+      if (notifyAudioContext && notifyAudioContext.state === "suspended") notifyAudioContext.resume();
+    } catch (err) {}
+    document.removeEventListener("click", unlock);
+    document.removeEventListener("keydown", unlock);
+  };
+  document.addEventListener("click", unlock);
+  document.addEventListener("keydown", unlock);
+}
+
+function detectOrderNotifications(nextState) {
+  if (!orderNotifyBaseline) {
+    orderNotifyBaseline = orderSnapshotForNotify(nextState);
+    return;
+  }
+  const page = pageRoot();
+  const session = nextState.session;
+  let shouldPlay = false;
+  if (isOrderNotifySoundEnabled()) {
+    if (page === "restaurant" && session && session.restaurantId) {
+      const rid = session.restaurantId;
+      (nextState.orders || []).forEach(function (order) {
+        if (!order || order.restaurantId !== rid) return;
+        const prev = orderNotifyBaseline[order.id];
+        if (order.status === "yeni" && (!prev || prev.status !== "yeni")) shouldPlay = true;
+      });
+    }
+    if (page === "courier" && session && session.role === "kurye" && session.courierId) {
+      const cid = session.courierId;
+      (nextState.orders || []).forEach(function (order) {
+        if (!order || order.courierId !== cid) return;
+        const prev = orderNotifyBaseline[order.id];
+        if (order.status === "atandi" && (!prev || prev.courierId !== cid || prev.status !== "atandi")) {
+          shouldPlay = true;
+        }
+      });
+    }
+  }
+  orderNotifyBaseline = orderSnapshotForNotify(nextState);
+  if (shouldPlay) playOrderNotifySound();
+}
+
+function orderNotifyToggleHtml() {
+  const on = isOrderNotifySoundEnabled();
+  return '<label class="gateway-row check"><input type="checkbox" data-toggle="order-notify-sound"' + (on ? " checked" : "") + "> Bildirim sesi</label>";
+}
+
 function persist() {
+  detectOrderNotifications(state);
   save(state);
 }
 
@@ -1910,6 +2070,109 @@ function cancelAddressLookup() {
   addressRequest += 1;
 }
 
+function setAddressStatus(text) {
+  const status = document.querySelector("#address-status");
+  if (status) status.textContent = text || "";
+}
+
+function deliveryHasSavedAddress() {
+  const delivery = state.delivery;
+  if (delivery && delivery.address && delivery.floor && delivery.apartment) return true;
+  const session = state.session;
+  if (session && session.email) {
+    const user = (state.users || []).filter(function (item) { return item && item.email === session.email; })[0];
+    if (user && user.address && user.floor && user.apartment) return true;
+  }
+  return false;
+}
+
+function freshDeliveryForAddress(address) {
+  const bag = { address: address, floor: "", apartment: "", buildingNo: "" };
+  if (!document.querySelector("#addr-bina")) delete bag.buildingNo;
+  return bag;
+}
+
+function fetchGoogleReverseGeocode(lat, lng) {
+  return ensureGooglePlaces().then(function (ok) {
+    if (!ok || !window.google || !google.maps) return "";
+    return new Promise(function (resolve) {
+      try {
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ location: { lat: lat, lng: lng } }, function (results, status) {
+          if (status !== "OK" || !results || !results[0]) {
+            resolve("");
+            return;
+          }
+          resolve(String(results[0].formatted_address || "").trim());
+        });
+      } catch (err) {
+        resolve("");
+      }
+    });
+  });
+}
+
+function fetchNominatimReverseGeocode(lat, lng) {
+  const url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=tr&lat="
+    + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lng);
+  return fetch(url, { headers: { Accept: "application/json" } })
+    .then(function (res) { return res.json(); })
+    .then(function (data) { return formatNominatim(data); })
+    .catch(function () { return ""; });
+}
+
+function reverseGeocodeCoords(lat, lng) {
+  return fetchGoogleReverseGeocode(lat, lng).then(function (line) {
+    if (line) return line;
+    return fetchNominatimReverseGeocode(lat, lng);
+  }).then(function (line) {
+    if (line) return line;
+    return lat.toFixed(5) + ", " + lng.toFixed(5);
+  });
+}
+
+function locateUserAddress(silent) {
+  if (!navigator.geolocation) {
+    if (!silent) setAddressStatus("Konum bu cihazda desteklenmiyor.");
+    return;
+  }
+  if (!silent) setAddressStatus("Konum alınıyor…");
+  navigator.geolocation.getCurrentPosition(function (pos) {
+    reverseGeocodeCoords(pos.coords.latitude, pos.coords.longitude).then(function (address) {
+      showAddressExtra(address);
+      if (!silent) setAddressStatus("");
+    });
+  }, function (err) {
+    if (silent) return;
+    if (err && err.code === 1) setAddressStatus("Konum izni verilmedi. Adresi elle yazabilirsiniz.");
+    else setAddressStatus("Konum alınamadı. Tekrar deneyin veya adres yazın.");
+  }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+}
+
+function maybeAutoLocateOnce() {
+  if (pageRoot() !== "home") return;
+  if (qs("q")) return;
+  if (deliveryHasSavedAddress()) return;
+  try {
+    if (sessionStorage.getItem(AUTO_LOCATE_KEY)) return;
+    sessionStorage.setItem(AUTO_LOCATE_KEY, "1");
+  } catch (err) {
+    return;
+  }
+  locateUserAddress(true);
+}
+
+function ensureAddressLocateUi() {
+  const form = document.querySelector("form.search");
+  if (!form || form.querySelector("#address-locate")) return;
+  const extra = document.querySelector("#address-extra");
+  const html = '<div id="address-locate" class="address-locate-row">'
+    + '<button type="button" class="text-btn" data-action="use-my-location">Konumumu kullan</button>'
+    + '<p class="address-locate-note">Konum yalnızca adres önerisi için kullanılır.</p></div>';
+  if (extra) extra.insertAdjacentHTML("beforebegin", html);
+  else form.insertAdjacentHTML("beforeend", html);
+}
+
 function showSuggestions(items) {
   const box = document.querySelector("#address-suggest");
   const extra = document.querySelector("#address-extra");
@@ -1937,18 +2200,20 @@ function showAddressExtra(address) {
     suggest.hidden = true;
     suggest.innerHTML = "";
   }
+  const bina = document.querySelector("#addr-bina");
   const floor = document.querySelector("#addr-kat");
   const apartment = document.querySelector("#addr-daire");
   const same = extra.dataset.picked === address;
   extra.dataset.picked = address;
   extra.hidden = false;
   if (!state.delivery || state.delivery.address !== address) {
-    state.delivery = { address: address, floor: "", apartment: "" };
+    state.delivery = freshDeliveryForAddress(address);
     persist();
     if (pageRoot() === "home" || pageRoot() === "restaurants") render();
   }
   if (!same) {
     const saved = state.delivery && state.delivery.address === address ? state.delivery : null;
+    if (bina) bina.value = saved && saved.buildingNo ? saved.buildingNo : "";
     if (floor) floor.value = saved ? saved.floor : "";
     if (apartment) apartment.value = saved ? saved.apartment : "";
   }
@@ -1960,19 +2225,23 @@ function showAddressExtra(address) {
 
 function saveDeliveryAddress() {
   const input = document.querySelector("#q");
+  const bina = document.querySelector("#addr-bina");
   const floor = document.querySelector("#addr-kat");
   const apartment = document.querySelector("#addr-daire");
+  const extra = document.querySelector("#address-extra");
   const status = document.querySelector("#address-status");
   const address = input ? input.value.trim() : "";
+  const buildingNo = bina ? bina.value.trim() : "";
   const floorValue = floor ? floor.value.trim() : "";
   const apartmentValue = apartment ? apartment.value.trim() : "";
   if (!address || !floorValue || !apartmentValue) {
     if (status) status.textContent = "Kat ve daire gerekli.";
     return;
   }
-  state.delivery = { address: address, floor: floorValue, apartment: apartmentValue };
+  state.delivery = { address: address, buildingNo: buildingNo, floor: floorValue, apartment: apartmentValue };
   persist();
   if (status) status.textContent = "Adres kaydedildi.";
+  if (extra) extra.hidden = true;
   if (pageRoot() === "home" || pageRoot() === "restaurants") render();
 }
 
@@ -2019,12 +2288,17 @@ function bindAddressSearch() {
   if (!document.querySelector("#address-suggest")) {
     form.insertAdjacentHTML("beforeend",
       '<div id="address-suggest" class="suggest" role="listbox" hidden></div>'
+      + '<div id="address-locate" class="address-locate-row">'
+      + '<button type="button" class="text-btn" data-action="use-my-location">Konumumu kullan</button>'
+      + '<p class="address-locate-note">Konum yalnızca adres önerisi için kullanılır.</p></div>'
       + '<div id="address-extra" class="address-extra" hidden>'
+      + '<label>Bina No <input id="addr-bina" type="text" autocomplete="off"></label>'
       + '<label>Kat <input id="addr-kat" type="text" autocomplete="off"></label>'
       + '<label>Daire <input id="addr-daire" type="text" autocomplete="off"></label>'
       + '<button class="btn" type="button" data-action="save-address">Kaydet</button>'
       + '<p id="address-status"></p></div>');
   }
+  ensureAddressLocateUi();
   const extra = document.querySelector("#address-extra");
   form.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -2056,6 +2330,8 @@ function bindAddressSearch() {
 
 function boot() {
   state = load();
+  resetOrderNotifyBaseline();
+  unlockNotifyAudio();
   hasAdminSession();
   save(state);
   rememberMapsKeyFromUrl();
@@ -2065,6 +2341,8 @@ function boot() {
   if (search && query) search.value = query;
   render();
   bindAddressSearch();
+  ensureAddressLocateUi();
+  maybeAutoLocateOnce();
   document.addEventListener("click", onClick);
   document.addEventListener("submit", onSubmit);
   document.addEventListener("input", onInput);
@@ -2073,7 +2351,9 @@ function boot() {
     if (event.key !== KEY) return;
     const active = document.activeElement;
     if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
-    state = load();
+    const next = load();
+    detectOrderNotifications(next);
+    state = next;
     render();
   });
 }
@@ -2393,6 +2673,7 @@ function onClick(event) {
   if (action === "reset-password") return resetCustomerPassword();
   if (action === "pick-address") return showAddressExtra(button.dataset.address || "");
   if (action === "save-address") return saveDeliveryAddress();
+  if (action === "use-my-location") return locateUserAddress(false);
   if (action === "logout") return logout();
 }
 
@@ -2434,6 +2715,10 @@ function onChange(event) {
       noteNode.hidden = false;
       noteNode.textContent = "Harbi Kurye atama tercihi kaydedildi.";
     }
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.dataset.toggle === "order-notify-sound") {
+    setOrderNotifySoundEnabled(target.checked);
     return;
   }
   if (target instanceof HTMLInputElement && target.name === "sepetTakipEnabled") {
@@ -2516,6 +2801,8 @@ function onSubmit(event) {
   if (kind === "save-courier-iban") return submitCourierIban(form);
   if (kind === "save-commission-iban") return submitCommissionIban(form);
   if (kind === "save-sepet-takip") return submitSepetTakipIntegration(form);
+  if (kind === "save-google-ads") return submitGoogleAdsIntegration(form);
+  if (kind === "save-home-ad-slots") return submitHomeAdSlots(form);
   if (kind === "checkout") return submitCheckout(form);
   if (kind === "district-restaurant") return submitDistrictRestaurant(form);
   if (kind === "cart-checkout") return submitCartCheckout(form);
@@ -3868,8 +4155,50 @@ function submitSepetTakipIntegration(form) {
   const base = String(form.baseUrl.value || "").trim();
   cfg.baseUrl = base || SEPET_TAKIP_DEFAULT_BASE;
   persist();
-  renderAdminCourierIntegrations();
+  renderAdminEntegrasyonlar();
   note("#sepet-takip-admin-note", "Sepet Takip anahtarları kaydedildi.", true);
+}
+
+function submitGoogleAdsIntegration(form) {
+  if (!state.integrations) state.integrations = normalizeIntegrations(null);
+  const ads = normalizeGoogleAds(state.integrations.googleAds);
+  ads.enabled = !!form.querySelector('[name="enabled"]').checked;
+  ads.publisherId = String(form.publisherId.value || "").trim();
+  ads.clientId = String(form.clientId.value || "").trim();
+  ads.defaultAdSlot = String(form.defaultAdSlot.value || "").trim();
+  const slotField = form.slotIds;
+  if (slotField) {
+    const parts = String(slotField.value || "").split(/[\n,]+/).map(function (line) { return line.trim(); });
+    for (let i = 0; i < 25; i += 1) ads.slotIds[i] = parts[i] || "";
+  }
+  state.integrations.googleAds = ads;
+  persist();
+  renderAdminEntegrasyonlar();
+  renderHomeAdGrid();
+  note("#google-ads-admin-note", "Google Ads ayarları kaydedildi.", true);
+}
+
+function submitHomeAdSlots(form) {
+  const slots = normalizeHomeAdSlots(state.homeAdSlots);
+  for (let i = 0; i < 25; i += 1) {
+    const modeInput = form.querySelector('[name="mode-' + i + '"]');
+    const titleInput = form.querySelector('[name="title-' + i + '"]');
+    const subtitleInput = form.querySelector('[name="subtitle-' + i + '"]');
+    const hrefInput = form.querySelector('[name="href-' + i + '"]');
+    const imageInput = form.querySelector('[name="image-' + i + '"]');
+    slots[i] = {
+      mode: modeInput && modeInput.value === "custom" ? "custom" : "demo",
+      title: titleInput ? String(titleInput.value || "").trim() : "",
+      subtitle: subtitleInput ? String(subtitleInput.value || "").trim() : "",
+      href: hrefInput ? String(hrefInput.value || "").trim() : "",
+      image: imageInput ? String(imageInput.value || "").trim() : ""
+    };
+  }
+  state.homeAdSlots = slots;
+  persist();
+  renderAdminEntegrasyonlar();
+  renderHomeAdGrid();
+  note("#home-ad-slots-note", "Ana sayfa reklam ızgarası kaydedildi.", true);
 }
 
 function submitSellerIban(form) {
@@ -4206,7 +4535,56 @@ function renderShopStandalone(list, heading) {
 
 let homeCategory = "restoran";
 
+function ensureAdsenseScript(publisherId) {
+  const pub = String(publisherId || "").trim();
+  if (!pub) return Promise.resolve(false);
+  if (window.adsbygoogle && document.querySelector("script[data-harbi-adsense]")) return Promise.resolve(true);
+  if (adsenseScriptPromise) return adsenseScriptPromise;
+  adsenseScriptPromise = new Promise(function (resolve) {
+    const script = document.createElement("script");
+    script.async = true;
+    script.dataset.harbiAdsense = "1";
+    script.crossOrigin = "anonymous";
+    script.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=" + encodeURIComponent(pub);
+    script.onload = function () { resolve(true); };
+    script.onerror = function () { resolve(false); };
+    document.head.appendChild(script);
+  });
+  return adsenseScriptPromise;
+}
+
+function renderHomeAdGrid() {
+  const root = document.querySelector("#home-ad-grid");
+  if (!root || pageRoot() !== "home") return;
+  const slots = normalizeHomeAdSlots(state.homeAdSlots);
+  const ads = normalizeGoogleAds(state.integrations && state.integrations.googleAds);
+  root.innerHTML = slots.map(function (slot, index) {
+    const slotId = ads.slotIds[index] || ads.defaultAdSlot;
+    if (ads.enabled && ads.clientId && slotId) {
+      return '<div class="home-ad-cell adsbygoogle-wrap"><ins class="adsbygoogle" style="display:block" data-ad-client="'
+        + esc(ads.clientId) + '" data-ad-slot="' + esc(slotId) + '"></ins></div>';
+    }
+    if (slot.mode === "custom" && (slot.title || slot.image)) {
+      const href = slot.href || "#";
+      const img = slot.image ? '<img src="' + esc(slot.image) + '" alt="">' : "";
+      return '<a class="home-ad-cell custom" href="' + esc(href) + '">' + img + "<span>" + esc(slot.title)
+        + '</span><small>' + esc(slot.subtitle) + "</small></a>";
+    }
+    return '<div class="home-ad-cell demo"><span>Reklam ' + (index + 1) + "</span></div>";
+  }).join("");
+  if (ads.enabled && ads.clientId && root.querySelector(".adsbygoogle")) {
+    ensureAdsenseScript(ads.publisherId || ads.clientId).then(function () {
+      root.querySelectorAll(".adsbygoogle").forEach(function () {
+        try {
+          (window.adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (err) {}
+      });
+    });
+  }
+}
+
 function renderHome() {
+  renderHomeAdGrid();
   document.querySelectorAll('[data-action="show-category"]').forEach(function (button) {
     button.setAttribute("aria-pressed", button.dataset.category === homeCategory ? "true" : "false");
   });
@@ -4271,7 +4649,7 @@ function renderAdmin() {
   renderAdminRestaurants();
   renderAdminFlorists();
   renderAdminCouriers();
-  renderAdminCourierIntegrations();
+  renderAdminEntegrasyonlar();
   renderAdminRegions();
   renderAdminSupervisors();
   renderAdminAccounting();
@@ -4674,10 +5052,12 @@ function customerPlaceText(state) {
     : null;
   if (user && user.email === "musteri@harbiyemek7.com") return "Yıldız Mahallesi Görkem 4. Ara Sokak No 26";
   const address = (state.delivery && state.delivery.address) || (user && user.address) || "";
+  const buildingNo = (state.delivery && state.delivery.buildingNo) || "";
   const floor = (state.delivery && state.delivery.floor) || (user && user.floor) || "";
   const apartment = (state.delivery && state.delivery.apartment) || (user && user.apartment) || "";
   const parts = [];
   if (address) parts.push(address);
+  if (buildingNo) parts.push("Bina No " + buildingNo);
   if (floor) parts.push("Kat " + floor);
   if (apartment) parts.push("Daire " + apartment);
   if (user && user.district && parts.join(" ").indexOf(user.district) === -1) parts.push(user.district);
@@ -4907,7 +5287,7 @@ function renderRestaurant() {
       + '<button class="btn" type="button" data-action="open-earnings">Kazancı aç</button></section>'
       + deliveryAndAssignPanelHtml(restaurant)
       + "</div>"
-      + '<section class="sheet"><h2>Gelen siparişler</h2><div id="restaurant-orders"></div></section>'
+      + '<section class="sheet"><h2>Gelen siparişler</h2>' + orderNotifyToggleHtml() + '<div id="restaurant-orders"></div></section>'
       + '<section class="sheet"><h2>İptal edilenler</h2><div id="restaurant-cancelled"></div></section>'
       + "</div>"
       + '<dialog id="earnings-dialog" class="earnings-dialog"><div id="restaurant-earnings"></div>'
@@ -4993,6 +5373,7 @@ function renderCourier() {
   root.innerHTML = '<p class="eyebrow">Harbi Kuryeler</p><h1>' + esc(courier ? courier.name : "Kurye") + "</h1>"
     + '<p class="section-note">' + esc(courier ? courier.phone : "") + (city ? " · " + esc(city) : "") + "</p>"
     + '<p class="section-note">Yalnızca ' + esc(city || "bulunduğunuz şehir") + " siparişleri gelir.</p>"
+    + orderNotifyToggleHtml()
     + '<section class="sheet"><h2>IBAN</h2>'
     + '<form data-form="save-courier-iban"><label class="field">IBAN<input name="iban" autocomplete="off" value="' + esc(courier ? courier.iban : "") + '"></label>'
     + '<p id="courier-iban-note" class="notice" hidden></p>'
@@ -5195,12 +5576,14 @@ function renderAdminCouriers() {
     + buildCourierManagementHtml();
 }
 
-function renderAdminCourierIntegrations() {
-  const root = document.querySelector("#admin-courier-integrations");
+function renderAdminEntegrasyonlar() {
+  const root = document.querySelector("#admin-entegrasyonlar");
   if (!root || !hasAdminSession()) return;
   const cfg = state.courierIntegrations && state.courierIntegrations.sepetTakip
     ? state.courierIntegrations.sepetTakip
     : normalizeSepetTakipIntegration(null);
+  const ads = normalizeGoogleAds(state.integrations && state.integrations.googleAds);
+  const slots = normalizeHomeAdSlots(state.homeAdSlots);
   const last = cfg.lastLog && cfg.lastLog.message
     ? '<p class="meta">Son gönderim: ' + esc(cfg.lastLog.message)
       + (cfg.lastLog.orderId ? " · " + esc(cfg.lastLog.orderId) : "")
@@ -5210,6 +5593,17 @@ function renderAdminCourierIntegrations() {
   const secretHint = cfg.secretKey
     ? '<p class="section-note">Kayıtlı gizli anahtar: ' + esc(maskSecretValue(cfg.secretKey)) + ". Değiştirmek için yeni değer girin.</p>"
     : "";
+  const slotIdLines = ads.slotIds.join("\n");
+  const slotRows = slots.map(function (slot, index) {
+    return '<div class="province-row home-ad-slot-row"><span>Slot ' + (index + 1) + '</span>'
+      + '<label class="field">Tür<select name="mode-' + index + '">'
+      + '<option value="demo"' + (slot.mode === "demo" ? " selected" : "") + '>Demo</option>'
+      + '<option value="custom"' + (slot.mode === "custom" ? " selected" : "") + ">Özel</option></select></label>"
+      + '<label class="field">Başlık<input name="title-' + index + '" value="' + esc(slot.title) + '"></label>'
+      + '<label class="field">Alt metin<input name="subtitle-' + index + '" value="' + esc(slot.subtitle) + '"></label>'
+      + '<label class="field">Bağlantı<input name="href-' + index + '" value="' + esc(slot.href) + '"></label>'
+      + '<label class="field">Görsel URL<input name="image-' + index + '" value="' + esc(slot.image) + '"></label></div>';
+  }).join("");
   root.innerHTML = '<article class="sheet integration-card">'
     + "<h3 class=\"admin-subhead\">Sepet Takip entegrasyonu</h3>"
     + '<p class="section-note">Restoran siparişi onayladığında, Sepet Takip açık işletmeler için POST '
@@ -5224,7 +5618,22 @@ function renderAdminCourierIntegrations() {
     + '<button class="btn" type="submit">Kaydet</button>'
     + "</form>"
     + last
-    + "</article>";
+    + "</article>"
+    + '<article class="sheet integration-card"><h3 class="admin-subhead">Google Ads (AdSense)</h3>'
+    + '<p class="section-note">Ana sayfa 5×5 ızgarada AdSense birimleri gösterilir. Publisher ve client kimlikleri yönetimde kalır.</p>'
+    + '<form data-form="save-google-ads">'
+    + '<label class="gateway-row check"><input type="checkbox" name="enabled"' + (ads.enabled ? " checked" : "") + "> Google Ads açık</label>"
+    + '<label class="field">Publisher ID<input name="publisherId" autocomplete="off" value="' + esc(ads.publisherId) + '"></label>'
+    + '<label class="field">Client ID (ca-pub-…)<input name="clientId" autocomplete="off" value="' + esc(ads.clientId) + '"></label>'
+    + '<label class="field">Varsayılan birim ID<input name="defaultAdSlot" autocomplete="off" value="' + esc(ads.defaultAdSlot) + '"></label>'
+    + '<label class="field">Birim ID listesi (25 satır)<textarea name="slotIds" rows="6" placeholder="Her satır bir slot">' + esc(slotIdLines) + "</textarea></label>"
+    + '<p id="google-ads-admin-note" class="notice" hidden></p>'
+    + '<button class="btn" type="submit">Kaydet</button></form></article>'
+    + '<article class="sheet integration-card"><h3 class="admin-subhead">Ana sayfa reklam ızgarası (5×5)</h3>'
+    + '<p class="section-note">Google Ads kapalıyken demo veya özel kartlar gösterilir.</p>'
+    + '<form data-form="save-home-ad-slots">' + slotRows
+    + '<p id="home-ad-slots-note" class="notice" hidden></p>'
+    + '<button class="btn" type="submit">Kaydet</button></form></article>';
 }
 
 function renderCourierAdmin() {
